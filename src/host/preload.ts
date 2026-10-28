@@ -10,7 +10,6 @@ const bridge: DesktopBridge = {
   copyMcpConfiguration: () => ipcRenderer.invoke('app:copy-mcp'),
   send: (text) => ipcRenderer.invoke('app:send', text),
   stop: () => ipcRenderer.invoke('app:stop'),
-  report: (id) => ipcRenderer.invoke('app:report', id),
   showPanel: (view = 'settings') => ipcRenderer.send('app:show', view),
   hidePanel: () => ipcRenderer.send('app:hide'),
   setAppearance: (preference) => ipcRenderer.invoke('app:appearance', preference),

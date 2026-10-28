@@ -1,13 +1,13 @@
 import { EventEmitter } from 'node:events';
 import { randomUUID, createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { commandSchema, PROTOCOL, terminal, type Receipt } from '../../protocol/schema';
+import { PROTOCOL } from '../../protocol/schema';
 import type { Controller } from '../../runtime/controller';
 import { connectionSchema, type ConnectionConfig, type ConnectionState } from './schema';
 import { consumeSse } from './sse';
 import { checkStreamResponse, connectionFailure, ConnectionFailure } from './connection-error';
 
-/** An outbound HTTP/SSE adapter; history synchronization never executes commands. */
+/** Exchanges speech over HTTP/SSE and displays live replies as local bubbles. */
 export class AnelfClient extends EventEmitter {
   private config?: ConnectionConfig;
   private abort?: AbortController;
@@ -15,7 +15,6 @@ export class AnelfClient extends EventEmitter {
   private generation = 0;
   private turn = '';
   private stopped = false;
-  private readonly reports = new Set<string>();
   private state: ConnectionState = {
     status: 'offline',
     detail: '',
@@ -29,20 +28,6 @@ export class AnelfClient extends EventEmitter {
     private readonly fetcher: typeof fetch = fetch,
   ) {
     super();
-    controller.on('receipt', (receipt: Receipt, owner: string) => {
-      if (owner !== this.owner() || !terminal(receipt) || !this.reports.delete(receipt.id)) return;
-      if (!this.abort?.signal.aborted)
-        void this.reportReceipt(receipt.id).catch(() => {
-          this.state.detail = '回执回传失败，结果已保留，可在回执页重试';
-          this.notify();
-        });
-    });
-  }
-  reportableIds(): string[] {
-    return this.controller
-      .list(this.owner())
-      .filter(terminal)
-      .map((receipt) => receipt.id);
   }
   snapshot(): ConnectionState {
     return structuredClone(this.state);
@@ -79,7 +64,6 @@ export class AnelfClient extends EventEmitter {
   async disconnect(): Promise<void> {
     this.generation++;
     this.abort?.abort();
-    this.reports.clear();
     await this.loop;
     await this.controller.cancel(this.owner(), { session: this.state.session });
     this.state.status = 'offline';
@@ -100,23 +84,11 @@ export class AnelfClient extends EventEmitter {
     this.state.busy = true;
     this.state.draft = '';
     this.addLine(id, 'user', text);
-    const instructions = `\n\n[桌宠客户端接入]\n你正在与桌宠客户端中的用户对话。可以正常回复文字。需要控制形象时，整个回复只能是一个 JSON 对象，不使用代码围栏：${JSON.stringify(
-      {
-        protocol: PROTOCOL,
-        id: 'unique-command-id',
-        session: this.state.session,
-        expiresAt: Date.now() + 300000,
-        commands: [
-          { action: 'say', text: '你好', durationMs: 5000 },
-          { action: 'emote', name: 'happy', durationMs: 1500 },
-        ],
-      },
-    )}。id 每批唯一，重发同批保持原值。支持 say(text,durationMs)、emote(name:neutral/happy/thinking/sleepy/surprised,durationMs)、move(x,y:0到1,durationMs)、ask(question,options,durationMs)。最多16步，按顺序执行，expiresAt 不超过当前时间五分钟。需要执行结果时设置 returnReceipt:true；ask 的用户回答会自动回传。回执是事件，只在需要继续动作时响应，避免回执循环。普通回复无需协议。\n`;
     try {
       const response = await this.post('/api/chat', {
         ...this.target(),
         ...this.skillSelection(),
-        message: text + instructions,
+        message: text,
         request_id: id,
         message_id: id,
         async_mode: true,
@@ -154,21 +126,6 @@ export class AnelfClient extends EventEmitter {
       this.state.detail = '已停止';
       this.notify();
     } else if (result.status !== 'ok') throw new Error('Anelf 未确认停止，请重试');
-  }
-  async reportReceipt(id: string): Promise<void> {
-    const receipt = this.controller.get(this.owner(), id);
-    if (!receipt || !terminal(receipt)) throw new Error('完成的回执不存在');
-    const response = await this.post('/api/chat', {
-      ...this.target(),
-      ...this.skillSelection(),
-      message: JSON.stringify({ type: 'desktop-pet.receipt', receipt }),
-      kind: 'event',
-      message_id: `receipt-${id}`,
-      request_id: `receipt-${id}`,
-      async_mode: true,
-    });
-    if (!['accepted', 'ok', 'duplicate'].includes(String(response.status)))
-      throw new Error('回执未被受理');
   }
   private target(): object {
     return { user_id: this.config?.userId, session_id: this.config?.sessionId };
@@ -219,12 +176,11 @@ export class AnelfClient extends EventEmitter {
     if (signal.aborted || generation !== this.generation) return;
     const rows = (data.messages ?? []).filter((row) => typeof row.content === 'string').slice(-50);
     const remaining = [...this.state.messages];
-    const plain = (text: string) => text.split('[桌宠客户端接入]')[0]!.trim();
     const history = rows.map((row) => {
       const line = { id: `history-${row.id}`, role: row.role, text: row.content.slice(0, 16000) };
       const found = remaining.findIndex(
         (item) =>
-          item.id === line.id || (item.role === line.role && plain(item.text) === plain(line.text)),
+          item.id === line.id || (item.role === line.role && item.text.trim() === line.text.trim()),
       );
       if (found >= 0) remaining.splice(found, 1);
       return line;
@@ -352,29 +308,6 @@ export class AnelfClient extends EventEmitter {
     this.addLine(`reply-${digest}`, 'assistant', text);
     if (this.stopped) return;
     try {
-      if (text.trim().startsWith('{')) {
-        const parsed = JSON.parse(text) as Record<string, unknown>;
-        if (parsed.protocol === PROTOCOL) {
-          const command = commandSchema.parse(parsed);
-          if (command.session !== this.state.session) {
-            this.state.detail = '已忽略旧轮次的桌宠指令';
-            return;
-          }
-          const existing = this.controller.get(this.owner(), command.id);
-          if (
-            !existing &&
-            (command.returnReceipt || command.commands.some((action) => action.action === 'ask'))
-          )
-            this.reports.add(command.id);
-          try {
-            this.controller.submit(this.owner(), command);
-          } catch (error) {
-            this.reports.delete(command.id);
-            throw error;
-          }
-          return;
-        }
-      }
       if (!this.controller.get(this.owner(), `reply-${digest}`))
         this.controller.submit(this.owner(), {
           protocol: PROTOCOL,
@@ -384,7 +317,7 @@ export class AnelfClient extends EventEmitter {
           commands: [{ action: 'say', text: text.slice(0, 4000), durationMs: 8000 }],
         });
     } catch {
-      this.state.detail = '桌宠指令未执行：格式、有效期或队列状态不符合协议';
+      this.state.detail = '回复气泡未显示，请在对话记录中查看';
     }
   }
   private addLine(id: string, role: string, text: string): void {

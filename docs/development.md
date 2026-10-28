@@ -23,6 +23,8 @@ renderer/panel：连接配置、历史、回执、外观
 
 `protocol/schema.ts` 负责跨入口的协议规范。控制器不依赖 Electron、React、HTTP 或 MCP SDK；渲染器不能直接使用 Node、读取凭据文件或发网络请求。主进程只向桌宠提供必要的连接状态与外观，控制 Token 只传给设置面板。
 
+Anelf 适配器只负责对话、连接与停止，将实时话语提交为本地气泡展示；不解析回复中的动作 JSON，也不订阅回执来发送聊天事件。`skills` 作为独立请求字段交给服务端转译。Agent 的动作经过关联 MCP 进入同一个控制器，执行回执留在工具调用内。
+
 单击、双击、拖动集中在 `usePetGestures.ts`；AI 动作的定时器、动画帧和回答归 `pet/engine.ts` 管理；输入和提问 UI 归 `PetBubble.tsx`；图片帧播放归 `SkinSprite.tsx`。这些模块不维护各自的命令队列，唯一队列在控制器内。
 
 `usePointerRegions.ts` 在布局与气泡尺寸变化时同步点击区域，原生边界根据系统鼠标位置切换穿透，拖动捕获具有超时。退出时停止接收窗口操作，但继续处理动作回执，待控制器完成取消后销毁窗口。
@@ -47,17 +49,17 @@ pnpm exec playwright test
 
 ```powershell
 $env:PYTHONDONTWRITEBYTECODE = '1'
-& E:/ELFProgram/AnelfAgent/.venv/Scripts/python.exe tests/fixtures/anelf_channel.py --source E:/ELFProgram/AnelfAgent --output "$PWD/.local/anelf-contract"
+& E:/ELFProgram/AnelfAgent/.venv/Scripts/python.exe tests/fixtures/anelf_channel.py --source E:/ELFProgram/AnelfAgent --output "$PWD/.build/anelf-contract"
 ```
 
 另一个终端执行：
 
 ```powershell
-$env:ANELF_FIXTURE = "$PWD/.local/anelf-contract/ready.json"
-$env:NODE_EXTRA_CA_CERTS = "$PWD/.local/anelf-contract/test-cert.pem"
+$env:ANELF_FIXTURE = "$PWD/.build/anelf-contract/ready.json"
+$env:NODE_EXTRA_CA_CERTS = "$PWD/.build/anelf-contract/test-cert.pem"
 pnpm exec playwright test
 ```
 
-夹具复制必要源码到隔离目录，启动真正的 Anelf HTTP 频道，但使用确定性的代理回复验证协议；它**不是实模回答质量测试**，不加载原项目凭据、记忆或数据库。HTTPS 使用仅对该测试进程信任的临时证书，不关闭证书验证。夹具五分钟后自动停止，也可创建输出目录中的 `stop` 文件结束。
+夹具复制必要源码与随包 Skill 到隔离目录，使用真实 Anelf HTTP 频道、技能标签加载、MCP 关联及 MCP 桥接器。确定性代理读取技能状态、激活工具组，通过桌宠 MCP 提问并取得回答，再经频道返回普通话语；它**不是实模回答质量测试**，不加载原项目凭据、记忆或数据库。HTTPS 使用仅对该测试进程信任的临时证书，不关闭证书验证。夹具五分钟后自动停止，也可创建输出目录中的 `stop` 文件结束。
 
 `EMBODIED_DATA_DIR` 可指定隔离数据目录；`EMBODIED_PORT=0` 自动选空闲端口；`EMBODIED_TEST=1` 仅用于自动化诊断。生产默认端口为 46187。运行数据、构建产物、临时夹具和截图均不提交 Git。

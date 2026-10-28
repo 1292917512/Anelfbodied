@@ -94,7 +94,7 @@ export function PetBubble({
       {(state.text || state.question) && (
         <p className="bubble-text">{state.text || state.question}</p>
       )}
-      {thinking && companion.draft && !companion.draft.trim().startsWith('{') && (
+      {thinking && companion.draft && (
         <p className="bubble-text draft">{companion.draft.slice(-500)}</p>
       )}
       {state.question ? (

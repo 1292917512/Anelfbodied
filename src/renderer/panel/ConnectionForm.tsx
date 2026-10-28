@@ -151,7 +151,7 @@ export function ConnectionForm({
               spellCheck={false}
             />
           </label>
-          <p className="hint">填写该 Anelf 服务已有的技能名；对话和回执均会携带，留空不指定。</p>
+          <p className="hint">由 Anelf 加载指定技能及其 MCP 关联。消息正文只传话语，留空不指定。</p>
           <p className="hint">
             Token {snapshot.secureStorage ? '由系统加密保存' : '仅保留在本次运行内'}。
           </p>

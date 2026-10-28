@@ -7,7 +7,7 @@ import {
 } from '@playwright/test';
 import { mkdtemp, readFile, writeFile, copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { createServer, type ServerResponse } from 'node:http';
@@ -425,7 +425,7 @@ test('packaged update interface shows download progress and a verified install a
 });
 
 for (const [index, scheme] of ['HTTP', 'HTTPS'].entries()) {
-  test(`real Anelf ${scheme} channel delivers a question and receives the answer`, async () => {
+  test(`real Anelf ${scheme} translates skills, controls through MCP and replies with speech`, async () => {
     test.skip(
       !process.env.ANELF_FIXTURE,
       'Set ANELF_FIXTURE to an isolated channel fixture ready.json',
@@ -434,6 +434,8 @@ for (const [index, scheme] of ['HTTP', 'HTTPS'].entries()) {
       urls: string[];
       token: string;
     };
+    const fixtureDirectory = dirname(process.env.ANELF_FIXTURE!);
+    await writeFile(join(fixtureDirectory, 'desktop.json'), JSON.stringify(connection));
     await openSettings();
     if (index === 0) {
       const client = await connectMcp();
@@ -465,6 +467,15 @@ for (const [index, scheme] of ['HTTP', 'HTTPS'].entries()) {
     await expect(pet.getByText('真实频道已连接，继续吗？')).toBeVisible();
     await pet.getByRole('button', { name: '继续', exact: true }).click();
     await expect(pet.getByText('回执已收到：继续', { exact: true })).toBeVisible();
+    const evidence = JSON.parse(
+      await readFile(join(fixtureDirectory, `evidence-${scheme.toLowerCase()}.json`), 'utf8'),
+    );
+    expect(evidence).toMatchObject({
+      message: '[skill:anelfbodied-control]\n请向我提问',
+      skill: 'anelfbodied-control',
+      mcp: 'fixture-desktop',
+      receipt: { status: 'completed', results: [{ outcome: 'completed', answer: '继续' }] },
+    });
   });
 }
 
@@ -538,6 +549,64 @@ test('channel settings distinguish failure, handshake, synchronization and recov
     await panel.getByRole('button', { name: '停止重连' }).click();
     await expect(panel.locator('.connection')).toHaveText('未连接');
     await expect(panel.getByRole('button', { name: '保存并连接' })).toBeEnabled();
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test('channel speech preserves JSON text in streaming, bubbles and history', async () => {
+  let stream: ServerResponse | undefined;
+  const received: Record<string, unknown>[] = [];
+  const server = createServer(async (req, res) => {
+    const path = new URL(req.url!, 'http://localhost').pathname;
+    if (path === '/api/chat/stream') {
+      stream = res;
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(': connected\n\n');
+    } else if (path === '/api/sessions/history') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ messages: [] }));
+    } else if (path === '/api/chat') {
+      let raw = '';
+      for await (const chunk of req) raw += String(chunk);
+      received.push(JSON.parse(raw));
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ status: 'accepted' }));
+    } else res.writeHead(404).end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Missing test port');
+  try {
+    await openSettings();
+    await panel.getByLabel('频道地址').fill(`http://127.0.0.1:${address.port}`);
+    await panel.getByLabel('技能名称', { exact: true }).fill('anelfbodied-control');
+    await panel.getByRole('button', { name: '保存并连接' }).click();
+    await expect(panel.locator('.connection')).toHaveText('已连接');
+    await panel.getByRole('button', { name: '收起浮层' }).click();
+    await pet.locator('.pet-body').dblclick({ force: true });
+    await pet.getByRole('textbox', { name: '发送消息' }).fill('解释这段 JSON');
+    await pet.getByRole('button', { name: '发送消息', exact: true }).click();
+    await expect.poll(() => received.length).toBe(1);
+    expect(received[0]).toMatchObject({
+      message: '解释这段 JSON',
+      skills: ['anelfbodied-control'],
+    });
+    stream!.write(`data: ${JSON.stringify({ type: 'delta', delta: '{"protocol":' })}\n\n`);
+    await expect(pet.locator('.bubble-text.draft')).toHaveText('{"protocol":');
+    const speech = JSON.stringify({
+      protocol: 'desktop-pet/1',
+      commands: [{ action: 'ask', question: '这是示例' }],
+    });
+    for (const frame of [{ type: 'reply', content: speech }, { type: 'turn_end' }])
+      stream!.write(`data: ${JSON.stringify(frame)}\n\n`);
+    await expect(pet.locator('.bubble-text')).toHaveText(speech);
+    await expect(pet.locator('.bubble-answer')).not.toBeVisible();
+    await openSettings();
+    await panel.getByRole('button', { name: '对话记录', exact: true }).click();
+    await expect(panel.locator('.history-view')).toContainText(speech);
+    expect(received).toHaveLength(1);
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));

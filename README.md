@@ -39,13 +39,13 @@ pnpm run dist
 
 在悬停工具栏的连接设置中填写 **HTTP API 频道地址**、频道 `api_token`、用户标识和会话标识。WebUI 地址、WebUI 登录密码不是频道凭据。HTTPS 使用正常的证书校验。
 
-频道设置中的“技能名称”可填写该 Anelf 服务已有的 Skill 名称，例如 `anelfbodied-control`。客户端会在用户消息和执行回执的 `/api/chat` 请求中传递 `skills: ["anelfbodied-control"]`，由对应服务为该次执行加载技能。留空不传此字段，旧配置默认留空。名称最多 64 字符，仅支持小写字母、数字、下划线及非首尾的连字符；不是路径，也不是文件内容。此项仅在频道界面设置，不扩展 MCP 工具。
+频道设置中的“技能名称”可填写该 Anelf 服务已有的 Skill 名称，例如 `anelfbodied-control`。客户端在用户消息的 `/api/chat` 请求中单独传递 `skills: ["anelfbodied-control"]`，Anelf 将其转为内部技能标签，加载正文及关联 MCP 状态。`message` 只传原始话语，不追加标签或协议提示。留空不传此字段，旧配置默认留空。名称最多 64 字符，仅支持小写字母、数字、下划线及非首尾的连字符；不是路径，也不是文件内容。此项仅在频道界面设置，不扩展 MCP 工具。
 
-客户端通过 `/api/chat` 发消息、`/api/chat/stream` 接收 SSE、`/api/sessions/history` 同步历史，通过 `/api/sessions/control` 停止会话。模型收到当前轮次的桌宠协议说明，普通文本显示为回复，合法协议 JSON 执行动作。读取历史不会重新执行指令。
+客户端通过 `/api/chat` 发消息、`/api/chat/stream` 接收 SSE、`/api/sessions/history` 同步历史，通过 `/api/sessions/control` 停止会话。频道回复只作为话语显示，JSON 形状的内容也不会执行动作。Agent 通过 Skill 关联的 MCP 控制桌宠，工具执行与最终文字回复可以在同一轮完成。
 
 保存配置后依次显示“连接中 → 同步历史 → 已连接”。固定状态栏显示当前阶段；配置保存成功不代表已连接。首次连接失败会显示原因并停止尝试，可修改配置或手动重试；等待响应超过 15 秒视为超时，连接和同步均可取消。历史暂时不可用但实时连接正常时，保留连接并显示提示。
 
-已连接的 SSE 中断后自动退避重连，可点击“停止重连”；认证失败、接口地址错误或证书无效时停止重试。无法确认的发送不自动重发。本轮终止帧丢失时，请点击停止同步状态，再继续发送。`ask` 的回答会自动作为事件回传；其他指令可设置 `returnReceipt: true`。回传失败可在回执面板重试，使用相同消息 ID 避免重复入站。
+已连接的 SSE 中断后自动退避重连，可点击“停止重连”；认证失败、接口地址错误或证书无效时停止重试。无法确认的发送不自动重发。本轮终止帧丢失时，请点击停止同步状态，再继续发送。历史只补充显示，不重播动作。`ask` 的回答由 MCP 执行回执返回，回执不再作为聊天事件发送；界面仍可查看实际执行结果。
 
 ## HTTP 与 MCP
 
@@ -96,4 +96,4 @@ await fetch('http://127.0.0.1:46187/v1/commands', {
 
 项目与安装包均提供 [anelfbodied-control](skills/anelfbodied-control/SKILL.md)。将整个 `skills/anelfbodied-control/` 文件夹交给 Agent 的 Skill 加载器，保留 `references/` 的目录层级。入口按 MCP、HTTP、Anelf 频道和表达、移动、问答、连接管理、取消恢复分别引导阅读。
 
-MCP 接入需要提供桌宠设置页的 MCP 配置。Anelf 频道接入只需在服务端安装相应 Skill，再在频道设置中填写其名称；客户端不会上传文件，也不会安装服务端技能。服务端需支持 `/api/chat` 的 `skills` 字段；连接成功不代表技能已存在或已加载。当前 Anelf 按名称注入 `SKILL.md` 正文，不会递归注入链接的文档；客户端仍携带本轮协议、动作说明和会话有效期，完整分层文档供支持文件读取的 Agent 按需查阅。
+MCP 接入需要提供桌宠设置页的 MCP 配置。Anelf 服务端安装相应 Skill 后，将它绑定到实际桌宠 MCP 服务，再在桌宠频道设置中填写技能名称。关联不等于连接或工具激活，Agent 按任务需要唤醒；详见 [频道与技能绑定](skills/anelfbodied-control/references/access/anelf-channel.md)。客户端不上传或安装服务端技能。服务端需支持 `/api/chat` 的 `skills` 字段；频道已连接不代表技能或 MCP 已就绪。Anelf 只自动加载 `SKILL.md` 正文，关键操作规则已放在入口，分层文档供按需查阅。桌宠 MCP 默认只监听本机，远端 Anelf 需要另行配置可达的受认证连接。

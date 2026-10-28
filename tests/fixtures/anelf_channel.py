@@ -10,6 +10,8 @@ from pathlib import Path
 import shutil
 import socket
 import sys
+import time
+import traceback
 from types import SimpleNamespace
 
 
@@ -29,6 +31,8 @@ def prepare(source, target):
             output.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(file, output)
     shutil.copy2(source / "pyproject.toml", target / "pyproject.toml")
+    shutil.copytree(Path(__file__).resolve().parents[2] / "skills" / "anelfbodied-control",
+                    target / "workspace" / "skills" / "anelfbodied-control", dirs_exist_ok=True)
     for key, folder in (("ANELF_CONFIG_DIR", "config"), ("ANELF_DATA_DIR", "data"), ("ANELF_WORKSPACE_ROOT", "workspace")):
         os.environ[key] = str(target / folder)
     os.chdir(target)
@@ -65,11 +69,21 @@ async def run(target):
     import agent.channel.manager as manager
     from core.log import set_log_level
     from core.tags import tag_label
+    from core.path import ConfigPaths
+    from agent.skills.skill_store import SkillStore
+    from agent.skills.tag_context import SkillTagContext
+    from agent.skills.dependencies import mcp_status_port, set_mcp_bindings
+    from agent.runtime.skill_dependencies import skill_mcp_snapshot
+    from agent.mind.tool_activation import tool_activation
+    from entities.mcp.bridge import MCPBridge, set_mcp_bridge
+    from entities.mcp.config import MCPConfig, MCPServerConfig
 
     set_log_level("WARNING")
     cert, key = certificate(target)
     channels = []
     tasks = set()
+    store = SkillStore(str(target / "workspace" / "skills"))
+    mcp_status_port.set(skill_mcp_snapshot)
 
     async def history(**_kwargs):
         return []
@@ -78,23 +92,50 @@ async def run(target):
         return {"status": "idle"}
 
     async def reply(channel, message):
-        await asyncio.sleep(0.05)
-        prefix = tag_label("skill", "anelfbodied-control") + "\n"
-        if not message.content.startswith(prefix):
-            await channel.send_text(message.sender.user_id, "缺少频道技能", session_id=message.session_id)
-            return
-        content = message.content.removeprefix(prefix)
-        if message.kind.value == "event":
-            payload = json.loads(content)
-            text = "回执已收到：" + payload["receipt"]["results"][0].get("answer", "完成")
-        else:
-            example = content.split("不使用代码围栏：", 1)[1].split("。id", 1)[0]
-            command = json.loads(example)
-            command["id"] = "fixture-" + message.message_id
-            command["commands"] = [{"action": "ask", "question": "真实频道已连接，继续吗？", "options": ["继续"], "durationMs": 30000}]
-            text = json.dumps(command, ensure_ascii=False)
-        await channel.send_text(message.sender.user_id, text, session_id=message.session_id)
-        channel._push_frame({"type": "turn_end", "turn_id": message.message_id}, f"user_http_api:{message.sender.user_id}#{message.session_id}")
+        bridge = None
+        scope = f"user_http_api:{message.sender.user_id}#{message.session_id}"
+        error = False
+        try:
+            assert message.kind.value == "chat", "Receipts must stay in MCP tool results"
+            assert message.content == tag_label("skill", "anelfbodied-control") + "\n请向我提问"
+            desktop = json.loads((target / "desktop.json").read_text(encoding="utf-8"))
+            server_name = "fixture-desktop"
+            config = {"url": desktop["url"] + "/mcp", "headers": {"Authorization": "Bearer " + desktop["token"]},
+                      "transport": "streamable_http", "enabled": True, "call_timeout": 35}
+            config_file = Path(ConfigPaths.MCP_SERVERS)
+            config_file.parent.mkdir(parents=True, exist_ok=True)
+            config_file.write_text(json.dumps({"mcpServers": {server_name: config}}), encoding="utf-8")
+            bridge = MCPBridge(MCPConfig(servers=[MCPServerConfig(name=server_name, **config)]))
+            set_mcp_bridge(bridge)
+            set_mcp_bindings(store, "anelfbodied-control", [server_name])
+            context = await SkillTagContext(store).build(message.content, [], scope=scope)
+            assert store.get("anelfbodied-control").content in context[0]["content"]
+            before = context[0]["_source"]["skills"][0]["mcp_status"][0]
+            assert before["name"] == server_name and not before["connected"]
+            assert await asyncio.to_thread(bridge.connect_server_by_name, server_name) > 0
+            tool_activation.activate(f"mcp:{server_name}", scope=scope)
+            state = skill_mcp_snapshot(scope)[server_name]
+            assert state.connected and state.activation == "active"
+            capabilities = json.loads(await bridge.call_server_tool(server_name, "pet_capabilities", {}))
+            assert capabilities["protocol"] == "desktop-pet/1"
+            command = {"protocol": capabilities["protocol"], "id": "fixture-" + message.message_id,
+                       "session": message.message_id, "expiresAt": int(time.time() * 1000) + 40000,
+                       "commands": [{"action": "ask", "question": "真实频道已连接，继续吗？", "options": ["继续"], "durationMs": 30000}]}
+            receipt = json.loads(await bridge.call_server_tool(server_name, "pet_execute", command))
+            assert receipt["status"] == "completed" and receipt["results"][0]["answer"] == "继续"
+            scheme = "https" if channel.config.ssl_certfile else "http"
+            (target / f"evidence-{scheme}.json").write_text(json.dumps({"message": message.content,
+                "skill": store.get("anelfbodied-control").name, "mcp": server_name, "receipt": receipt}), encoding="utf-8")
+            await channel.send_text(message.sender.user_id, "回执已收到：" + receipt["results"][0]["answer"], session_id=message.session_id)
+        except Exception:
+            error = True
+            traceback.print_exc()
+            await channel.send_text(message.sender.user_id, "契约验证失败，请查看隔离夹具日志", session_id=message.session_id)
+        finally:
+            channel._push_frame({"type": "turn_end", "turn_id": message.message_id, "error": error}, scope)
+            if bridge:
+                await asyncio.to_thread(bridge.disconnect_server_by_name, "fixture-desktop")
+                await asyncio.to_thread(bridge.shutdown)
 
     async def dispatch(channel, message):
         task = asyncio.create_task(reply(channel, message))

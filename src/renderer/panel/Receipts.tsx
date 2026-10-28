@@ -8,15 +8,7 @@ const labels: Record<Receipt['status'], string> = {
   failed: '失败',
   unknown: '结果不确定',
 };
-export function Receipts({
-  receipts,
-  reportableIds,
-  report,
-}: {
-  receipts: Receipt[];
-  reportableIds: string[];
-  report: (id: string) => void;
-}) {
+export function Receipts({ receipts }: { receipts: Receipt[] }) {
   return (
     <section className="receipts">
       <p className="muted">
@@ -39,11 +31,6 @@ export function Receipts({
               {index + 1}. {result.answer ?? result.detail ?? labels[result.outcome]}
             </p>
           ))}
-          {reportableIds.includes(receipt.id) && (
-            <button className="text-button" onClick={() => report(receipt.id)}>
-              将此回执回传 Anelf
-            </button>
-          )}
         </article>
       ))}
     </section>

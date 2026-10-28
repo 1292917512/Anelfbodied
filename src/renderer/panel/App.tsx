@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import type { Snapshot, PanelView } from '../../contracts/client';
-import { PROTOCOL } from '../../protocol/schema';
 import { SettingsPanel } from './SettingsPanel';
 import { Receipts } from './Receipts';
 import { Icon } from '../components/Icon';
@@ -10,23 +9,6 @@ import { productName } from '../../shared/product';
 import { connectionLabels } from '../connection-state';
 import { ConnectionStatus } from './ConnectionStatus';
 
-function messageText(text: string): string {
-  try {
-    const data = JSON.parse(text) as {
-      protocol?: string;
-      commands?: { text?: string; question?: string; action: string }[];
-    };
-    if (data.protocol === PROTOCOL)
-      return (
-        data.commands
-          ?.map((action) => action.text ?? action.question ?? `〈${action.action}〉`)
-          .join('\n') ?? text
-      );
-  } catch {
-    /* Display ordinary replies as text. */
-  }
-  return text.split('[桌宠客户端接入]')[0]?.trim() ?? text;
-}
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [view, setView] = useState<PanelView>('settings');
@@ -155,11 +137,7 @@ export function App() {
         ) : view === 'settings' ? (
           <SettingsPanel snapshot={snapshot} run={run} />
         ) : view === 'receipts' ? (
-          <Receipts
-            receipts={snapshot.receipts}
-            reportableIds={snapshot.reportableIds}
-            report={(id) => run(() => window.embodied.report(id))}
-          />
+          <Receipts receipts={snapshot.receipts} />
         ) : (
           <div className="history-view">
             {!snapshot.connection.messages.length && (
@@ -171,7 +149,7 @@ export function App() {
                 key={line.id}
               >
                 <small>{line.role === 'user' ? '你' : '伙伴'}</small>
-                <p>{messageText(line.text)}</p>
+                <p>{line.text}</p>
               </div>
             ))}
           </div>

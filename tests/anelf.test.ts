@@ -175,19 +175,22 @@ describe('Anelf HTTP channel adapter', () => {
     }
   });
 
-  it('executes only live commands, deduplicates replay and returns user answers as events', async () => {
-    let calls = 0;
+  it('keeps skills separate from speech and never executes reply JSON or posts receipt events', async () => {
+    const spoken: string[] = [];
     const f = await fixture({
-      execute: async () => {
-        calls++;
-        return { outcome: 'completed', answer: '继续' };
+      execute: async (action) => {
+        if (action.action === 'say') spoken.push(action.text);
+        else throw new Error(`Unexpected channel action: ${action.action}`);
+        return { outcome: 'completed' };
       },
     });
     f.state.history = [{ id: 1, role: 'assistant', content: '历史不会执行' }];
     await f.client.connect({ ...f.config, skillName: 'anelfbodied-control' });
     await expect.poll(() => f.client.snapshot().status).toBe('online');
-    expect(calls).toBe(0);
-    await f.client.send('请询问我');
+    expect(spoken).toEqual([]);
+    const message = '请解释 {"action":"ask"}，保留原文。';
+    await f.client.send(message);
+    expect(f.requests[0]?.data.message).toBe(message);
     expect(f.requests[0]?.data.skills).toEqual(['anelfbodied-control']);
     const command = {
       protocol: PROTOCOL,
@@ -196,21 +199,24 @@ describe('Anelf HTTP channel adapter', () => {
       expiresAt: Date.now() + 30000,
       commands: [{ action: 'ask', question: '继续吗？', options: ['继续'], durationMs: 1000 }],
     };
+    f.frame({ type: 'tool_call', name: 'pet_execute', arguments: command });
     f.frame({ type: 'reply', content: JSON.stringify(command), session_id: 'desk' });
-    await expect
-      .poll(() => f.requests.filter((request) => request.data.kind === 'event').length)
-      .toBe(1);
-    const report = f.requests.find((request) => request.data.kind === 'event')!;
-    expect(report.data.skills).toEqual(['anelfbodied-control']);
-    expect(JSON.parse(String(report.data.message)).receipt.results[0].answer).toBe('继续');
+    await expect.poll(() => spoken).toEqual([JSON.stringify(command)]);
+    expect(f.controller.list()[0]?.total).toBe(1);
     f.frame({ type: 'reply', content: JSON.stringify(command) });
     f.frame({ type: 'turn_end' });
     f.state.history.push({ id: 2, role: 'assistant', content: JSON.stringify(command) });
     f.reconnect();
     await expect.poll(() => f.state.subscriptions).toBe(2);
     await expect.poll(() => f.client.snapshot().status).toBe('online');
-    expect(calls).toBe(1);
-    expect(f.requests.filter((request) => request.data.kind === 'event')).toHaveLength(1);
+    expect(spoken).toEqual([JSON.stringify(command)]);
+    f.controller.submit('external', {
+      ...command,
+      id: 'mcp-action',
+      commands: [{ action: 'say', text: 'MCP' }],
+    });
+    await f.controller.wait('external', 'mcp-action');
+    expect(f.requests.filter((request) => request.path === '/api/chat')).toHaveLength(1);
     expect(
       f.client.snapshot().messages.filter((line) => line.text === JSON.stringify(command)),
     ).toHaveLength(1);

@@ -8,7 +8,6 @@ import type { UpdateState } from './update';
 export interface Snapshot {
   connection: ConnectionState;
   receipts: Receipt[];
-  reportableIds: string[];
   settings: SettingsView;
   settingsRevision: string;
   connectionUpdating: boolean;
@@ -35,7 +34,6 @@ export interface DesktopBridge {
   copyMcpConfiguration(): Promise<void>;
   send(text: string): Promise<void>;
   stop(): Promise<void>;
-  report(id: string): Promise<void>;
   showPanel(view?: PanelView): void;
   hidePanel(): void;
   focusPet(focus: boolean): void;

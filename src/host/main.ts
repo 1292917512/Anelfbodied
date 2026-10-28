@@ -141,7 +141,6 @@ async function start(): Promise<void> {
   const snapshot = (): Snapshot => ({
     connection: anelf.snapshot(),
     receipts: controller.list(),
-    reportableIds: anelf.reportableIds(),
     settings: settings.view(),
     settingsRevision: connection.revision,
     connectionUpdating: connection.updating,
@@ -229,7 +228,6 @@ async function start(): Promise<void> {
   handle('app:send', (input) => anelf.send(z.string().max(16000).parse(input)), true);
   handle('app:stop', stop, true);
   handle('pet:snapshot', () => companion(snapshot()), true);
-  handle('app:report', (input) => anelf.reportReceipt(z.string().parse(input)));
   handle('app:appearance', (input) => {
     skins.select(input);
     desktop.scale(skins.current().scale);

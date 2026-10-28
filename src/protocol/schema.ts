@@ -47,7 +47,6 @@ export const commandSchema = z
     session: identifier,
     expiresAt: z.number().int().positive(),
     commands: z.array(actionSchema).min(1).max(16),
-    returnReceipt: z.boolean().optional(),
   })
   .strict();
 export const cancelSchema = z
