@@ -64,6 +64,7 @@ async def run(target):
     from agent.execution_control import execution_control_port
     import agent.channel.manager as manager
     from core.log import set_log_level
+    from core.tags import tag_label
 
     set_log_level("WARNING")
     cert, key = certificate(target)
@@ -78,11 +79,16 @@ async def run(target):
 
     async def reply(channel, message):
         await asyncio.sleep(0.05)
+        prefix = tag_label("skill", "anelfbodied-control") + "\n"
+        if not message.content.startswith(prefix):
+            await channel.send_text(message.sender.user_id, "缺少频道技能", session_id=message.session_id)
+            return
+        content = message.content.removeprefix(prefix)
         if message.kind.value == "event":
-            payload = json.loads(message.content)
+            payload = json.loads(content)
             text = "回执已收到：" + payload["receipt"]["results"][0].get("answer", "完成")
         else:
-            example = message.content.split("不使用代码围栏：", 1)[1].split("。id", 1)[0]
+            example = content.split("不使用代码围栏：", 1)[1].split("。id", 1)[0]
             command = json.loads(example)
             command["id"] = "fixture-" + message.message_id
             command["commands"] = [{"action": "ask", "question": "真实频道已连接，继续吗？", "options": ["继续"], "durationMs": 30000}]

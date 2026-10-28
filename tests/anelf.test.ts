@@ -98,10 +98,11 @@ describe('Anelf HTTP channel adapter', () => {
       },
     });
     f.state.history = [{ id: 1, role: 'assistant', content: '历史不会执行' }];
-    await f.client.connect(f.config);
+    await f.client.connect({ ...f.config, skillName: 'anelfbodied-control' });
     await expect.poll(() => f.client.snapshot().status).toBe('online');
     expect(calls).toBe(0);
     await f.client.send('请询问我');
+    expect(f.requests[0]?.data.skills).toEqual(['anelfbodied-control']);
     const command = {
       protocol: PROTOCOL,
       id: 'question',
@@ -114,6 +115,7 @@ describe('Anelf HTTP channel adapter', () => {
       .poll(() => f.requests.filter((request) => request.data.kind === 'event').length)
       .toBe(1);
     const report = f.requests.find((request) => request.data.kind === 'event')!;
+    expect(report.data.skills).toEqual(['anelfbodied-control']);
     expect(JSON.parse(String(report.data.message)).receipt.results[0].answer).toBe('继续');
     f.frame({ type: 'reply', content: JSON.stringify(command) });
     f.frame({ type: 'turn_end' });
@@ -126,6 +128,18 @@ describe('Anelf HTTP channel adapter', () => {
     expect(
       f.client.snapshot().messages.filter((line) => line.text === JSON.stringify(command)),
     ).toHaveLength(1);
+    await f.client.send('重连后继续');
+    expect(f.requests.at(-1)?.data.skills).toEqual(['anelfbodied-control']);
+    await f.client.stop();
+    expect(f.requests.at(-1)?.data).not.toHaveProperty('skills');
+    await f.client.connect({ ...f.config, skillName: 'another-skill' });
+    await expect.poll(() => f.client.snapshot().status).toBe('online');
+    await f.client.send('切换技能');
+    expect(f.requests.at(-1)?.data.skills).toEqual(['another-skill']);
+    await f.client.connect({ ...f.config, skillName: '' });
+    await expect.poll(() => f.client.snapshot().status).toBe('online');
+    await f.client.send('清除技能');
+    expect(f.requests.at(-1)?.data).not.toHaveProperty('skills');
   });
 
   it('targets the observed Anelf run, cancels local work and rejects late replies after stopping', async () => {
@@ -141,6 +155,7 @@ describe('Anelf HTTP channel adapter', () => {
     await f.client.connect(f.config);
     await expect.poll(() => f.client.snapshot().status).toBe('online');
     await f.client.send('开始');
+    expect(f.requests.at(-1)?.data).not.toHaveProperty('skills');
     f.frame({ type: 'delta', delta: '正在准备', turn_id: 'run-one' });
     f.frame({ type: 'reply', content: '你好' });
     await expect.poll(() => calls).toBe(1);

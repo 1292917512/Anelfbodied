@@ -1,10 +1,40 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Settings } from '../src/host/settings';
 
 describe('connection settings', () => {
+  it('loads old settings without a skill and persists or clears a selected skill', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'embodied-settings-')), 'settings.json');
+    const original = JSON.stringify({
+      version: 1,
+      connection: { baseUrl: 'https://agent.example', userId: 'pet', sessionId: 'desk' },
+      secret: Buffer.from('saved-token').toString('base64'),
+    });
+    writeFileSync(file, original);
+    const codec = {
+      available: () => true,
+      encrypt: (text: string) => Buffer.from(text),
+      decrypt: (data: Buffer) => data.toString(),
+    };
+    const settings = new Settings(file, codec);
+    expect(settings.get()).toMatchObject({ skillName: '', token: 'saved-token' });
+    expect(readFileSync(file, 'utf8')).toBe(original);
+    settings.save({ ...settings.get(), skillName: ' anelfbodied-control ' });
+    expect(new Settings(file, codec).get()).toEqual({
+      ...settings.get(),
+      skillName: 'anelfbodied-control',
+      token: 'saved-token',
+    });
+    for (const skillName of ['../skill', 'a,b', 'a b', '[skill:test]', 'a-', 'a'.repeat(65)]) {
+      expect(() => settings.save({ ...settings.get(), skillName })).toThrow();
+    }
+    expect(new Settings(file, codec).get().skillName).toBe('anelfbodied-control');
+    settings.save({ ...settings.get(), skillName: '' });
+    expect(new Settings(file, codec).get().skillName).toBe('');
+  });
+
   it('preserves encrypted credentials only for the same endpoint and supports explicit removal', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'embodied-settings-')), 'settings.json');
     const codec = {

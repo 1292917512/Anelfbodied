@@ -23,6 +23,12 @@ export const connectionSchema = z.object({
     .regex(/^[^#\s]+$/)
     .default('desktop_pet'),
   sessionId: z.string().min(1).max(128).default('companion'),
+  skillName: z
+    .string()
+    .trim()
+    .max(64)
+    .regex(/^$|^[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?$/, '请输入有效的 Anelf 技能名称')
+    .default(''),
 });
 export type ConnectionConfig = z.infer<typeof connectionSchema>;
 export interface ChatLine {

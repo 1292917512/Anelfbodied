@@ -19,6 +19,7 @@ export class Settings {
     token: '',
     userId: 'desktop_pet',
     sessionId: 'companion',
+    skillName: '',
   };
   constructor(
     private readonly file: string,

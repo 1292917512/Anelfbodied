@@ -14,6 +14,7 @@ export const configureConnectionSchema = z
     token: connectionSchema.shape.token.removeDefault().optional(),
     userId: connectionSchema.shape.userId.removeDefault().optional(),
     sessionId: connectionSchema.shape.sessionId.removeDefault().optional(),
+    skillName: connectionSchema.shape.skillName.removeDefault().optional(),
     clearToken: z.boolean().optional(),
     connect: z.boolean().default(true),
     expectedRevision: z.string().optional(),

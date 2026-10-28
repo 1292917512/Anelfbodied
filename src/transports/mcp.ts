@@ -83,7 +83,7 @@ export function createMcp(
       {
         description:
           'Patch the saved channel configuration and connect by default. Use the HTTP API channel URL and its API token, not WebUI credentials. Omitted fields stay unchanged; changing baseUrl without token clears the old credential. Use connect:false to save while disconnected. expectedRevision detects conflicting edits. Check connection.status: saved configuration does not imply an online channel. Cancellation stops connection attempts but does not undo saved settings. Stop a busy conversation before changing configuration.',
-        inputSchema: configureConnectionSchema,
+        inputSchema: configureConnectionSchema.omit({ skillName: true }),
       },
       async (input, extra) => result(await connection.configure(input, extra.signal)),
     );

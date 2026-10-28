@@ -440,10 +440,10 @@ for (const [index, scheme] of ['HTTP', 'HTTPS'].entries()) {
       try {
         const configured = await client.callTool({
           name: 'pet_configure_connection',
-          arguments: { baseUrl: fixture.urls[index]!, token: fixture.token },
+          arguments: { baseUrl: fixture.urls[index]!, token: fixture.token, connect: false },
         });
         expect(configured.isError).not.toBe(true);
-        expect(configured.structuredContent).toMatchObject({ connection: { status: 'online' } });
+        expect(configured.structuredContent).toMatchObject({ connection: { status: 'offline' } });
         await expect(panel.getByLabel('频道地址')).toHaveValue(fixture.urls[index]!);
       } finally {
         await client.close();
@@ -451,9 +451,13 @@ for (const [index, scheme] of ['HTTP', 'HTTPS'].entries()) {
     } else {
       await panel.getByLabel('频道地址').fill(fixture.urls[index]!);
       await panel.getByLabel('API Token', { exact: true }).fill(fixture.token);
-      await panel.getByRole('button', { name: '保存并连接' }).click();
     }
+    await panel.getByLabel('技能名称', { exact: true }).fill('anelfbodied-control');
+    await panel.getByRole('button', { name: '保存并连接' }).click();
     await expect(panel.locator('.connection')).toContainText('已连接');
+    const settings = JSON.parse(await readFile(join(data, 'settings.json'), 'utf8'));
+    expect(settings.connection.skillName).toBe('anelfbodied-control');
+    await panel.screenshot({ path: `test-results/channel-skill-${scheme}.png` });
     await panel.getByRole('button', { name: '收起浮层' }).click();
     await pet.locator('.pet-body').dblclick({ force: true });
     await pet.getByRole('textbox', { name: '发送消息' }).fill('请向我提问');
@@ -478,6 +482,15 @@ test('MCP configuration stays redacted, updates the UI and prevents stale form e
   await openSettings();
   const client = await connectMcp();
   try {
+    const tools = await client.listTools();
+    expect(
+      tools.tools.find((tool) => tool.name === 'pet_configure_connection')?.inputSchema.properties,
+    ).not.toHaveProperty('skillName');
+    const invalid = await client.callTool({
+      name: 'pet_configure_connection',
+      arguments: { skillName: 'anelfbodied-control', connect: false },
+    });
+    expect(invalid.isError).toBe(true);
     const configured = await client.callTool({
       name: 'pet_configure_connection',
       arguments: {
@@ -492,7 +505,7 @@ test('MCP configuration stays redacted, updates the UI and prevents stale form e
     expect(JSON.stringify(configured)).not.toContain('configuration-test-secret');
     await expect(panel.getByLabel('用户标识')).toHaveValue('agent-user');
     const state = configured.structuredContent as unknown as ConnectionOverview;
-    await panel.getByLabel('会话标识').fill('local-draft');
+    await panel.getByLabel('技能名称', { exact: true }).fill('local-draft');
     await client.callTool({
       name: 'pet_configure_connection',
       arguments: { sessionId: 'agent-updated', connect: false },
@@ -501,7 +514,7 @@ test('MCP configuration stays redacted, updates the UI and prevents stale form e
       panel.getByText('连接配置已由其他入口更新，请载入最新配置后再编辑。'),
     ).toBeVisible();
     await expect(panel.getByRole('button', { name: '保存并连接' })).toBeDisabled();
-    await expect(panel.getByLabel('会话标识')).toHaveValue('local-draft');
+    await expect(panel.getByLabel('技能名称', { exact: true })).toHaveValue('local-draft');
     const stale = await client.callTool({
       name: 'pet_configure_connection',
       arguments: { userId: 'stale', expectedRevision: state.revision, connect: false },
@@ -509,6 +522,7 @@ test('MCP configuration stays redacted, updates the UI and prevents stale form e
     expect(stale.isError).toBe(true);
     await panel.getByRole('button', { name: '载入最新配置' }).click();
     await expect(panel.getByLabel('会话标识')).toHaveValue('agent-updated');
+    await expect(panel.getByLabel('技能名称', { exact: true })).toHaveValue('');
     const persisted = await readFile(join(data, 'settings.json'), 'utf8');
     expect(persisted).not.toContain('configuration-test-secret');
     await panel.getByRole('button', { name: 'MCP / 消息协议', exact: true }).click();

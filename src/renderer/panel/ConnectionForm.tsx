@@ -18,7 +18,7 @@ export function ConnectionForm({
   const dirty = Boolean(
     form.token ||
     clearToken ||
-    (['baseUrl', 'userId', 'sessionId'] as const).some(
+    (['baseUrl', 'userId', 'sessionId', 'skillName'] as const).some(
       (key) => form[key] !== baseline.settings[key],
     ),
   );
@@ -32,7 +32,7 @@ export function ConnectionForm({
     if (!dirty && conflict)
       load({ settings: snapshot.settings, revision: snapshot.settingsRevision });
   }, [dirty, conflict, snapshot.settingsRevision, snapshot.settings]);
-  const update = (key: 'baseUrl' | 'token' | 'userId' | 'sessionId', value: string) =>
+  const update = (key: 'baseUrl' | 'token' | 'userId' | 'sessionId' | 'skillName', value: string) =>
     setForm((previous) => ({ ...previous, [key]: value }));
   return (
     <section>
@@ -57,12 +57,13 @@ export function ConnectionForm({
         onSubmit={(event) => {
           event.preventDefault();
           run(async () => {
-            const { baseUrl, token, userId, sessionId } = form;
+            const { baseUrl, token, userId, sessionId, skillName } = form;
             const result = await window.embodied.configure({
               baseUrl,
               token,
               userId,
               sessionId,
+              skillName,
               clearToken,
               expectedRevision: baseline.revision,
             });
@@ -122,6 +123,20 @@ export function ConnectionForm({
             />
           </label>
         </div>
+        <label>
+          技能名称（可选）
+          <input
+            aria-label="技能名称"
+            value={form.skillName}
+            onChange={(event) => update('skillName', event.target.value)}
+            placeholder="anelfbodied-control"
+            maxLength={64}
+            pattern="[a-z0-9_](?:[a-z0-9_\-]*[a-z0-9_])?"
+            autoCapitalize="none"
+            spellCheck={false}
+          />
+        </label>
+        <p className="hint">填写该 Anelf 服务已有的技能名；对话和回执均会携带，留空不指定。</p>
         <p className="hint">
           Token {snapshot.secureStorage ? '由系统加密保存' : '仅保留在本次运行内'}。
         </p>

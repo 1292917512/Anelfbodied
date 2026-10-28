@@ -61,6 +61,7 @@ describe('shared connection management', () => {
       token: 'private-token',
       userId: 'custom-user',
       sessionId: 'custom-session',
+      skillName: 'anelfbodied-control',
     });
     const view = await f.service.configure({ sessionId: 'next-session' });
     expect(view.settings).toEqual({
@@ -68,6 +69,7 @@ describe('shared connection management', () => {
       hasToken: true,
       userId: 'custom-user',
       sessionId: 'next-session',
+      skillName: 'anelfbodied-control',
     });
     expect(f.settings.get().token).toBe('private-token');
     expect(JSON.stringify(view)).not.toContain('private-token');
@@ -79,6 +81,8 @@ describe('shared connection management', () => {
     expect(changed.connection.status).toBe('offline');
     expect(changed.settings.hasToken).toBe(false);
     expect(f.settings.get().token).toBe('');
+    await f.service.configure({ skillName: '', connect: false });
+    expect(f.settings.get().skillName).toBe('');
   });
   it('rejects stale edits and busy conversations without changing saved settings', async () => {
     const f = fixture();

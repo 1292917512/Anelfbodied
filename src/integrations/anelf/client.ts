@@ -114,6 +114,7 @@ export class AnelfClient extends EventEmitter {
     try {
       const response = await this.post('/api/chat', {
         ...this.target(),
+        ...this.skillSelection(),
         message: text + instructions,
         request_id: id,
         message_id: id,
@@ -158,6 +159,7 @@ export class AnelfClient extends EventEmitter {
     if (!receipt || !terminal(receipt)) throw new Error('完成的回执不存在');
     const response = await this.post('/api/chat', {
       ...this.target(),
+      ...this.skillSelection(),
       message: JSON.stringify({ type: 'desktop-pet.receipt', receipt }),
       kind: 'event',
       message_id: `receipt-${id}`,
@@ -169,6 +171,9 @@ export class AnelfClient extends EventEmitter {
   }
   private target(): object {
     return { user_id: this.config?.userId, session_id: this.config?.sessionId };
+  }
+  private skillSelection(): { skills?: string[] } {
+    return this.config?.skillName ? { skills: [this.config.skillName] } : {};
   }
   private endpoint(path: string): URL {
     if (!this.config) throw new Error('Anelf is not configured');
