@@ -54,6 +54,26 @@ function fixture() {
   return { service, settings, channel, file };
 }
 describe('shared connection management', () => {
+  it('keeps configuration pending while history synchronizes and returns the final failure', async () => {
+    const f = fixture();
+    f.channel.next = 'syncing';
+    let completed = false;
+    const pending = f.service.configure({ userId: 'saved-user' }).then((result) => {
+      completed = true;
+      return result;
+    });
+    await expect.poll(() => f.service.snapshot().connection.status).toBe('syncing');
+    expect(completed).toBe(false);
+    expect(f.service.snapshot().updating).toBe(true);
+    f.channel.status = 'error';
+    f.channel.emit('state');
+    expect(await pending).toMatchObject({
+      updating: false,
+      settings: { userId: 'saved-user' },
+      connection: { status: 'error' },
+    });
+    expect(f.channel.listenerCount('state')).toBe(0);
+  });
   it('patches only supplied fields and never exposes or transfers a secret to another endpoint', async () => {
     const f = fixture();
     await f.service.configure({

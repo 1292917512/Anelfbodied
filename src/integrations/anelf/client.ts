@@ -5,6 +5,7 @@ import { commandSchema, PROTOCOL, terminal, type Receipt } from '../../protocol/
 import type { Controller } from '../../runtime/controller';
 import { connectionSchema, type ConnectionConfig, type ConnectionState } from './schema';
 import { consumeSse } from './sse';
+import { checkStreamResponse, connectionFailure, ConnectionFailure } from './connection-error';
 
 /** An outbound HTTP/SSE adapter; history synchronization never executes commands. */
 export class AnelfClient extends EventEmitter {
@@ -215,7 +216,7 @@ export class AnelfClient extends EventEmitter {
     const data = (await response.json()) as {
       messages?: { id: string | number; role: string; content: string }[];
     };
-    if (generation !== this.generation) return;
+    if (signal.aborted || generation !== this.generation) return;
     const rows = (data.messages ?? []).filter((row) => typeof row.content === 'string').slice(-50);
     const remaining = [...this.state.messages];
     const plain = (text: string) => text.split('[桌宠客户端接入]')[0]!.trim();
@@ -232,67 +233,85 @@ export class AnelfClient extends EventEmitter {
   }
   private async run(generation: number, signal: AbortSignal): Promise<void> {
     let attempt = 0;
+    let connected = false;
     while (!signal.aborted) {
+      const session = new AbortController();
+      const sessionSignal = AbortSignal.any([signal, session.signal]);
+      let stream: Promise<never> | undefined;
+      let retryMs = 0;
       try {
+        if (connected) {
+          this.state.status = 'reconnecting';
+          this.state.detail = '正在自动重试，等待服务响应（最多 15 秒）；已执行动作不会重播';
+          this.notify();
+        }
         const url = this.endpoint('/api/chat/stream');
         url.search = new URLSearchParams({
           user_id: this.config?.userId ?? '',
           session_id: this.config?.sessionId ?? '',
         }).toString();
         const handshake = new AbortController();
-        const timer = setTimeout(() => handshake.abort(), 15000);
+        const timer = setTimeout(
+          () => handshake.abort(new ConnectionFailure('连接超时（15 秒），请检查服务状态和网络')),
+          15000,
+        );
         const response = await this.fetcher(url, {
           headers: { ...this.headers(), Accept: 'text/event-stream' },
-          signal: AbortSignal.any([signal, handshake.signal]),
+          signal: AbortSignal.any([sessionSignal, handshake.signal]),
         }).finally(() => clearTimeout(timer));
-        if ([401, 403].includes(response.status)) {
-          await response.body?.cancel();
-          this.state.status = 'error';
-          this.state.detail = '认证失败，请检查 API Token';
-          this.notify();
-          return;
-        }
-        if (!response.ok || !response.headers.get('content-type')?.includes('text/event-stream')) {
-          await response.body?.cancel();
-          throw new Error('Invalid SSE response');
-        }
-        const stream = consumeSse(response, signal, (data) => this.frame(data, generation));
-        // Consume immediately so no frames are lost while history is loaded.
-        const settled = stream.then(
-          () => undefined,
-          (error) => error as unknown,
-        );
         try {
-          await this.history(signal, generation);
-        } catch {
-          if (!signal.aborted) this.state.detail = '历史暂时不可用，已保留实时连接';
+          checkStreamResponse(response);
+        } catch (error) {
+          await response.body?.cancel();
+          throw error;
         }
-        if (signal.aborted) {
-          await settled;
-          return;
-        }
+        stream = consumeSse(response, sessionSignal, (data) => this.frame(data, generation)).then(
+          () => {
+            throw new ConnectionFailure('频道事件流已关闭');
+          },
+        );
+        this.state.status = 'syncing';
+        this.state.detail = '';
+        this.notify();
+        const historyDetail = await Promise.race([
+          stream,
+          this.history(sessionSignal, generation).then(
+            () => '',
+            () => '历史暂时不可用，实时连接正常',
+          ),
+        ]);
+        if (signal.aborted || generation !== this.generation) return;
+        connected = true;
         this.state.status = 'online';
         if (this.state.busy && this.stopped)
           this.state.detail = '连接已恢复，本轮状态未确认；点击停止同步状态后可继续';
-        else if (!this.state.busy) this.state.detail = '';
+        else this.state.detail = historyDetail;
         this.notify();
         const started = Date.now();
-        const failure = await settled;
-        if (Date.now() - started > 30000) attempt = 0;
-        if (failure) throw failure;
-        if (!signal.aborted) throw new Error('SSE closed');
-      } catch {
+        try {
+          await stream;
+        } finally {
+          if (Date.now() - started > 30000) attempt = 0;
+        }
+      } catch (error) {
         if (signal.aborted || generation !== this.generation) return;
         if (this.state.busy) this.stopped = true;
+        const failure = connectionFailure(error);
+        if (!connected || !failure.retryable) {
+          this.state.status = 'error';
+          this.state.detail = `连接失败：${failure.message}`;
+          this.notify();
+          return;
+        }
+        retryMs = Math.min(30000, 500 * 2 ** Math.min(attempt++, 6)) + Math.random() * 250;
         this.state.status = 'reconnecting';
-        this.state.detail = '连接中断，正在恢复；已执行的动作不会重播';
+        this.state.detail = `连接已中断：${failure.message}；${Math.ceil(retryMs / 1000)} 秒后自动重试，已执行动作不会重播`;
         this.notify();
-        await delay(
-          Math.min(30000, 500 * 2 ** Math.min(attempt++, 6)) + Math.random() * 250,
-          undefined,
-          { signal },
-        ).catch(() => {});
+      } finally {
+        session.abort();
+        await stream?.catch(() => {});
       }
+      await delay(retryMs, undefined, { signal }).catch(() => {});
     }
   }
   private frame(raw: string, generation: number): void {

@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
-import { createServer } from 'node:http';
+import { createServer, type ServerResponse } from 'node:http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -477,6 +477,72 @@ async function connectMcp() {
   );
   return client;
 }
+
+test('channel settings distinguish failure, handshake, synchronization and recovery', async () => {
+  let stream: ServerResponse | undefined;
+  let history: ServerResponse | undefined;
+  const server = createServer((req, res) => {
+    const path = new URL(req.url!, 'http://localhost').pathname;
+    if (path === '/api/chat/stream') stream = res;
+    else if (path === '/api/sessions/history') history = res;
+    else res.writeHead(404).end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Missing test port');
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  try {
+    await openSettings();
+    await panel.getByLabel('频道地址').fill(`http://127.0.0.1:${address.port}`);
+    await panel.getByRole('button', { name: '保存并连接' }).click();
+    await expect(panel.locator('.connection')).toHaveText('连接失败');
+    await expect(panel.getByRole('alert')).toContainText('服务未启动或端口不可达');
+    await expect(panel.getByText('配置已保存', { exact: true })).toBeVisible();
+    await expect(panel.getByRole('button', { name: '重试连接' })).toBeEnabled();
+    const status = panel.getByRole('status', { name: '频道状态' });
+    await expect(status).toBeVisible();
+    await panel.screenshot({ path: 'test-results/channel-failure.png' });
+
+    await new Promise<void>((resolve) => server.listen(address.port, '127.0.0.1', resolve));
+    await panel.getByRole('button', { name: '重试连接' }).click();
+    await expect.poll(() => Boolean(stream)).toBe(true);
+    await expect(panel.locator('.connection')).toHaveText('连接中');
+    await expect(panel.getByRole('button', { name: '正在连接…' })).toBeDisabled();
+    await expect(panel.getByRole('button', { name: '取消连接' })).toBeEnabled();
+    await expect(panel.getByLabel('频道地址')).toBeDisabled();
+    await expect(panel.getByRole('alert')).not.toBeVisible();
+    stream!.writeHead(401).end();
+    stream = undefined;
+    await expect(panel.getByRole('alert')).toContainText('认证失败');
+    await expect(panel.getByRole('button', { name: '重试连接' })).toBeEnabled();
+
+    await panel.getByRole('button', { name: '重试连接' }).click();
+    await expect.poll(() => Boolean(stream)).toBe(true);
+    stream!.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    stream!.write(': connected\n\n');
+    await expect.poll(() => Boolean(history)).toBe(true);
+    await expect(panel.locator('.connection')).toHaveText('同步历史');
+    await expect(panel.getByRole('button', { name: '正在同步…' })).toBeDisabled();
+    await expect(panel.locator('.configuration-conflict')).not.toBeVisible();
+    await expect(status).toContainText('实时连接已建立');
+    await panel.screenshot({ path: 'test-results/channel-syncing.png' });
+    history!.setHeader('Content-Type', 'application/json');
+    history!.end(JSON.stringify({ messages: [] }));
+    await expect(panel.locator('.connection')).toHaveText('已连接');
+    await expect(panel.getByRole('button', { name: '已连接', exact: true })).toBeDisabled();
+    await expect(panel.getByRole('alert')).not.toBeVisible();
+
+    stream!.end();
+    await expect(panel.locator('.connection')).toHaveText('重连中');
+    await expect(status).toContainText('自动重试');
+    await panel.getByRole('button', { name: '停止重连' }).click();
+    await expect(panel.locator('.connection')).toHaveText('未连接');
+    await expect(panel.getByRole('button', { name: '保存并连接' })).toBeEnabled();
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
 
 test('MCP configuration stays redacted, updates the UI and prevents stale form edits', async () => {
   await openSettings();

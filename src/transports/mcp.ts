@@ -91,7 +91,7 @@ export function createMcp(
       'pet_connection_control',
       {
         description:
-          'Connect the saved Anelf channel, disconnect its event stream, or request the current conversation to stop. Disconnecting does not stop the remote agent; use stop first when needed. A stop request may still be settling: inspect busy in pet_connection_state. Connection attempts return the actual online/error/reconnecting status and support SDK cancellation.',
+          'Connect the saved Anelf channel, disconnect its event stream, or request the current conversation to stop. Disconnecting does not stop the remote agent; use stop first when needed. A stop request may still be settling: inspect busy in pet_connection_state. Connecting and history synchronization support SDK cancellation. Initial attempts return online/error; only previously established connections automatically reconnect.',
         inputSchema: z.object({ action: connectionActionSchema }),
       },
       async ({ action }, extra) => result(await connection.control(action, extra.signal)),

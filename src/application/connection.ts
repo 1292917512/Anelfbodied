@@ -98,7 +98,7 @@ export class ConnectionService extends EventEmitter implements ConnectionControl
         else resolve();
       };
       const changed = () => {
-        if (['online', 'error', 'reconnecting'].includes(this.channel.snapshot().status)) done();
+        if (['online', 'error'].includes(this.channel.snapshot().status)) done();
       };
       const aborted = () => done(signal.reason);
       this.channel.on('state', changed);

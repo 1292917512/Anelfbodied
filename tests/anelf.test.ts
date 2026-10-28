@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, type ServerResponse } from 'node:http';
 import { AnelfClient } from '../src/integrations/anelf/client';
 import { Controller } from '../src/runtime/controller';
@@ -14,12 +14,17 @@ afterEach(async () => {
 
 async function fixture(driver: ActionDriver) {
   const streams = new Set<ServerResponse>();
+  const histories = new Set<ServerResponse>();
   const requests: { path: string; data: Record<string, unknown> }[] = [];
   const state = {
     rejectAuth: false,
     dropPost: false,
     stopStatus: 'idle',
     subscriptions: 0,
+    streamStatus: 200,
+    streamType: 'text/event-stream',
+    holdHistory: false,
+    historyStatus: 200,
     history: [] as { id: number; role: string; content: string }[],
   };
   const server = createServer(async (req, res) => {
@@ -30,6 +35,10 @@ async function fixture(driver: ActionDriver) {
     const path = new URL(req.url!, 'http://localhost').pathname;
     if (path === '/api/chat/stream') {
       state.subscriptions++;
+      if (state.streamStatus !== 200 || state.streamType !== 'text/event-stream') {
+        res.writeHead(state.streamStatus, { 'Content-Type': state.streamType }).end();
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.write(': connected\n\n');
       streams.add(res);
@@ -37,6 +46,12 @@ async function fixture(driver: ActionDriver) {
       return;
     }
     if (path === '/api/sessions/history') {
+      if (state.holdHistory) {
+        histories.add(res);
+        req.on('close', () => histories.delete(res));
+        return;
+      }
+      res.statusCode = state.historyStatus;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ messages: state.history }));
       return;
@@ -85,10 +100,81 @@ async function fixture(driver: ActionDriver) {
     reconnect: () => {
       for (const stream of streams) stream.end();
     },
+    pendingHistory: () => histories.size,
   };
 }
 
 describe('Anelf HTTP channel adapter', () => {
+  it.each([
+    [404, 'application/json', '未找到频道接口'],
+    [200, 'text/html', '未返回频道事件流'],
+    [503, 'application/json', 'HTTP 503'],
+  ])(
+    'fails an initial invalid channel response (%s, %s) until an explicit retry',
+    async (status, type, detail) => {
+      const f = await fixture({ execute: async () => ({ outcome: 'completed' }) });
+      f.state.streamStatus = status;
+      f.state.streamType = type;
+      await f.client.connect(f.config);
+      await expect.poll(() => f.client.snapshot().status).toBe('error');
+      expect(f.client.snapshot().detail).toContain(detail);
+      await new Promise((resolve) => setTimeout(resolve, 850));
+      expect(f.state.subscriptions).toBe(1);
+      f.state.streamStatus = 200;
+      f.state.streamType = 'text/event-stream';
+      await f.client.connect(f.config);
+      await expect.poll(() => f.client.snapshot().status).toBe('online');
+    },
+  );
+
+  it('never reports online when the stream ends during history synchronization', async () => {
+    const f = await fixture({ execute: async () => ({ outcome: 'completed' }) });
+    f.state.holdHistory = true;
+    const states: string[] = [];
+    f.client.on('state', () => states.push(f.client.snapshot().status));
+    await f.client.connect(f.config);
+    await expect.poll(() => f.pendingHistory()).toBe(1);
+    expect(f.client.snapshot().status).toBe('syncing');
+    f.reconnect();
+    await expect.poll(() => f.client.snapshot().status).toBe('error');
+    await expect.poll(() => f.pendingHistory()).toBe(0);
+    expect(states).not.toContain('online');
+    expect(states).not.toContain('reconnecting');
+    f.state.holdHistory = false;
+    f.state.historyStatus = 503;
+    await f.client.connect(f.config);
+    await expect.poll(() => f.client.snapshot().status).toBe('online');
+    expect(f.client.snapshot().detail).toContain('历史暂时不可用');
+  });
+
+  it('times out an initial silent service without starting a reconnect loop', async () => {
+    vi.useFakeTimers();
+    const controller = new Controller(
+      { execute: async () => ({ outcome: 'completed' }) },
+      new Journal(),
+    );
+    let calls = 0;
+    const client = new AnelfClient(controller, async (_url, init) => {
+      calls++;
+      return new Promise<Response>((_resolve, reject) => {
+        init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), { once: true });
+      });
+    });
+    try {
+      await client.connect({ baseUrl: 'http://127.0.0.1:8091' });
+      expect(client.snapshot().status).toBe('connecting');
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(client.snapshot().status).toBe('error');
+      expect(client.snapshot().detail).toContain('连接超时');
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(calls).toBe(1);
+    } finally {
+      await client.disconnect();
+      await controller.close();
+      vi.useRealTimers();
+    }
+  });
+
   it('executes only live commands, deduplicates replay and returns user answers as events', async () => {
     let calls = 0;
     const f = await fixture({
@@ -204,5 +290,19 @@ describe('Anelf HTTP channel adapter', () => {
     await f.client.stop();
     await f.client.send('继续');
     expect(f.client.snapshot().busy).toBe(true);
+  });
+
+  it('stops automatic recovery when the service rejects credentials', async () => {
+    const f = await fixture({ execute: async () => ({ outcome: 'completed' }) });
+    await f.client.connect(f.config);
+    await expect.poll(() => f.client.snapshot().status).toBe('online');
+    f.state.rejectAuth = true;
+    f.reconnect();
+    await expect.poll(() => f.client.snapshot().status).toBe('error');
+    expect(f.client.snapshot().detail).toContain('认证失败');
+    f.state.rejectAuth = false;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(f.state.subscriptions).toBe(1);
+    expect(f.client.snapshot().status).toBe('error');
   });
 });

@@ -37,7 +37,7 @@ export interface ChatLine {
   text: string;
 }
 export interface ConnectionState {
-  status: 'offline' | 'connecting' | 'online' | 'reconnecting' | 'error';
+  status: 'offline' | 'connecting' | 'syncing' | 'online' | 'reconnecting' | 'error';
   detail: string;
   messages: ChatLine[];
   draft: string;

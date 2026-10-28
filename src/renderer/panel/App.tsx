@@ -7,6 +7,8 @@ import { Icon } from '../components/Icon';
 import { AppearancePanel } from './AppearancePanel';
 import { applicationIcon } from '../../skins/builtin';
 import { productName } from '../../shared/product';
+import { connectionLabels } from '../connection-state';
+import { ConnectionStatus } from './ConnectionStatus';
 
 function messageText(text: string): string {
   try {
@@ -25,17 +27,13 @@ function messageText(text: string): string {
   }
   return text.split('[桌宠客户端接入]')[0]?.trim() ?? text;
 }
-const labels = {
-  offline: '未连接',
-  connecting: '连接中',
-  online: '已连接',
-  reconnecting: '重连中',
-  error: '连接异常',
-};
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [view, setView] = useState<PanelView>('settings');
   const [error, setError] = useState('');
+  useEffect(() => {
+    if (snapshot?.connection.status === 'error') setError(snapshot.connection.detail);
+  }, [snapshot?.connection.status, snapshot?.connection.detail]);
   useEffect(() => {
     void window.embodied
       .snapshot()
@@ -75,7 +73,7 @@ export function App() {
             <strong>{productName}</strong>
             <span className={`connection ${snapshot.connection.status}`}>
               <i />
-              {labels[snapshot.connection.status]}
+              {connectionLabels[snapshot.connection.status]}
             </span>
           </div>
         </div>
@@ -142,10 +140,14 @@ export function App() {
           </button>
         </div>
       )}
-      {snapshot.connection.detail && (
-        <div className="connection-detail" role="status">
-          {snapshot.connection.detail}
-        </div>
+      {view === 'settings' ? (
+        <ConnectionStatus connection={snapshot.connection} />
+      ) : (
+        snapshot.connection.detail && (
+          <div className="connection-detail" role="status">
+            {snapshot.connection.detail}
+          </div>
+        )
       )}
       <div className="detail-scroll">
         {view === 'appearance' ? (

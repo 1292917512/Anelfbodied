@@ -29,7 +29,7 @@
 
 ## 结果与取消
 
-操作返回 `settings`、`revision`、`updating` 和 `connection`。只有 `connection.status` 为 `online` 才表示连接完成；认证失败返回 `error`，网络故障可能返回 `reconnecting`，由已有退避逻辑继续恢复。配置保存成功不等于频道已连接。
+操作返回 `settings`、`revision`、`updating` 和 `connection`。连接依次经过 `connecting`、`syncing`，只有 `online` 才表示连接完成。首次连接失败返回 `error` 和具体原因，不自动重试；保存的配置仍保留，可修正后再次连接。只有已建立过的连接中断才进入 `reconnecting` 并退避恢复；认证、地址或证书错误会停止重试。配置保存成功不等于频道已连接。
 
 配置修改和连接操作串行执行，重叠的修改会被拒绝；读取状态不受影响。显式 `disconnect` 可以打断当前连接操作。MCP SDK 的取消信号和界面“取消连接”都会关闭握手和重连；已经保存的配置不回滚，后续可重试连接。
 

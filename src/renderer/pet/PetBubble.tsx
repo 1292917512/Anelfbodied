@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CompanionState } from '../../contracts/client';
 import type { PetState } from './engine';
 import { Icon } from '../components/Icon';
+import { connectionLabels } from '../connection-state';
 
 export function PetBubble({
   state,
@@ -67,7 +68,11 @@ export function PetBubble({
       {(open || thinking || error) && (
         <div className="bubble-tools">
           <span>
-            {thinking ? '想一想…' : companion.status === 'online' ? '我在听' : '还未连接'}
+            {thinking
+              ? '想一想…'
+              : companion.status === 'online'
+                ? '我在听'
+                : connectionLabels[companion.status]}
           </span>
           {(companion.busy || companion.active) && (
             <button
