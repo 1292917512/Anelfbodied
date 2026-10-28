@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CompanionState } from '../../host/contracts';
+import type { CompanionState } from '../../contracts/client';
 import type { PetState } from './engine';
 import { Icon } from '../components/Icon';
 

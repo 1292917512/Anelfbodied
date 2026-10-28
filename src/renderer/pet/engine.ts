@@ -1,5 +1,5 @@
 import type { Action, ActionResult } from '../../protocol/schema';
-import type { RendererOrder } from '../../host/contracts';
+import type { PresentationOrder } from '../../protocol/presentation';
 
 export interface PetState {
   x: number;
@@ -28,7 +28,7 @@ export class PetEngine {
     private readonly changed: (state: PetState) => void,
     private readonly reply: (id: string, result: ActionResult) => void,
   ) {}
-  dispatch(order: RendererOrder): void {
+  dispatch(order: PresentationOrder): void {
     if (order.type === 'cancel') {
       if (this.current?.id === order.id) this.current.finish({ outcome: 'cancelled' });
       return;

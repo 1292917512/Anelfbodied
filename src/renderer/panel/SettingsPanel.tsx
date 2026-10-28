@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { Snapshot } from '../../host/contracts';
+import type { Snapshot } from '../../contracts/client';
+import { UpdatePanel } from './UpdatePanel';
 
 export function SettingsPanel({
   snapshot,
@@ -146,7 +147,14 @@ export function SettingsPanel({
           </p>
         </section>
       )}
-      <p className="version-note">Embodied 0.1 · 独立桌面伙伴</p>
+      <details className="storage-details">
+        <summary>存储位置</summary>
+        <p className="hint">{snapshot.dataDirectory}</p>
+        <button onClick={() => run(() => window.embodied.openLocation('data'))}>
+          打开数据目录
+        </button>
+      </details>
+      <UpdatePanel state={snapshot.update} run={run} />
     </div>
   );
 }

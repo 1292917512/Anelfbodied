@@ -25,9 +25,11 @@ pnpm run pack
 pnpm run dist
 ```
 
-`pnpm run pack` 生成 Windows 目录包 `release/win-unpacked/Embodied.exe`；`pnpm run dist` 生成安装包。注意使用 `pnpm run pack`，`pnpm pack` 是包管理器的源码归档命令。macOS、Linux 有构建配置，但尚未做真机验证；当前验证平台是 Windows。
+`pnpm run pack` 生成 Windows 目录包 `release/win-unpacked/Embodied.exe`；`pnpm run dist` 生成 `release/Embodied-Setup-<版本>-x64.exe` 安装程序。支持选择目录、桌面与开始菜单快捷方式，以及 Windows 应用列表中的完整卸载。注意使用 `pnpm run pack`，`pnpm pack` 是包管理器的源码归档命令。macOS、Linux 有构建配置，但尚未做真机验证；当前发行目标是 Windows。
 
-程序数据在 Electron 的 `userData` 中，Windows 默认为 `%APPDATA%/Embodied`。Anelf Token 使用系统加密；系统加密不可用时只在内存保存。`runtime.log` 记录启动与进程异常，保留两份约 256 KB 的文件。桌宠不读写 Anelf 的本地数据目录。
+程序、文档、示例和数据统一放在安装目录。运行数据保存在 `data/`，日志位于 `data/logs/`，自定义皮肤位于 `data/skins/`。安装目录必须对当前用户可写，程序不会静默退回其他目录保存数据。Anelf Token 使用系统加密；系统加密不可用时只在内存保存。日志保留两份约 256 KB 的文件，磁盘缓存限额为 64 MB。桌宠不读写 Anelf 的本地数据目录。
+
+**卸载会删除本次安装的全部程序数据，包括配置和自定义皮肤，不默认保留。** 升级保留数据；皮肤开发的源素材请存放在安装目录之外。详见 [安装与卸载](docs/installation.md)。
 
 ## 连接 Anelf
 
@@ -80,4 +82,4 @@ await fetch('http://127.0.0.1:46187/v1/commands', {
 });
 ```
 
-动作与可靠性边界见 [控制协议](docs/protocol.md)，模块划分和扩展方式见 [开发说明](docs/development.md)。
+动作与可靠性边界见 [控制协议](docs/protocol.md)，模块划分见 [开发说明](docs/development.md)，Unity 等前端的接口边界见 [前端扩展](docs/frontends.md)。

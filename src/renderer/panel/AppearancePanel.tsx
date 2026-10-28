@@ -67,6 +67,14 @@ export function AppearancePanel({
         )}
       </div>
       <p className="hint">支持静态 PNG 和序列帧皮肤。导入后即可切换，不影响正在执行的动作。</p>
+      <div className="button-row">
+        <button onClick={() => run(() => window.embodied.openLocation('skins'))}>
+          打开皮肤目录
+        </button>
+        <button onClick={() => run(() => window.embodied.openLocation('skin-guide'))}>
+          皮肤开发说明
+        </button>
+      </div>
     </section>
   );
 }

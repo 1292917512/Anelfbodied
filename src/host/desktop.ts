@@ -1,6 +1,6 @@
 import { BrowserWindow, Menu, screen, dialog } from 'electron';
 import { petAnchor, panelAnchor, type Point } from '../shared/geometry';
-import type { PanelView } from './contracts';
+import type { PanelView } from '../contracts/client';
 
 /** Owns the floating windows, placement and bounded renderer recovery. */
 export function createDesktop(

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, type ServerResponse } from 'node:http';
 import { AnelfClient } from '../src/integrations/anelf/client';
-import { Controller, type ActionDriver } from '../src/runtime/controller';
+import { Controller } from '../src/runtime/controller';
+import type { ActionDriver } from '../src/runtime/ports';
 import { Journal } from '../src/runtime/journal';
 import { PROTOCOL } from '../src/protocol/schema';
 

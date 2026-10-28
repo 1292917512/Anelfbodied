@@ -7,6 +7,7 @@ import {
   safeStorage,
   dialog,
   protocol,
+  shell,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from 'electron';
@@ -20,20 +21,40 @@ import { Journal } from '../runtime/journal';
 import { startServer } from '../transports/http';
 import { AnelfClient } from '../integrations/anelf/client';
 import { Settings } from './settings';
-import { RendererDriver } from './renderer-driver';
-import type { Snapshot } from './contracts';
+import { createRendererDriver } from './renderer-driver';
+import type { Snapshot } from '../contracts/client';
 import { diagnostics } from './diagnostics';
 import { createDesktop } from './desktop';
 import { SkinCatalog } from '../skins/catalog';
 import { PointerBoundary } from './pointer-boundary';
+import { prepareStorage } from './storage';
+import { Updater } from '../updates/updater';
+import { GitHubReleases } from '../updates/source';
+import { installUpdate } from './install-update';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 protocol.registerSchemesAsPrivileged([
   { scheme: 'embodied-skin', privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
-if (process.env.EMBODIED_DATA_DIR) app.setPath('userData', process.env.EMBODIED_DATA_DIR);
 app.setName('Embodied');
-const log = diagnostics(app.getPath('userData'));
+const installation = app.isPackaged ? dirname(app.getPath('exe')) : app.getAppPath();
+const storage = (() => {
+  try {
+    const paths = prepareStorage(installation, process.env.EMBODIED_DATA_DIR);
+    app.setPath('userData', paths.data);
+    app.setPath('sessionData', paths.cache);
+    app.setPath('crashDumps', paths.crashes);
+    app.setAppLogsPath(paths.logs);
+    return paths;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!process.env.EMBODIED_TEST) dialog.showErrorBox('Embodied 无法启动', message);
+    console.error(message);
+    process.exit(1);
+  }
+})();
+app.commandLine.appendSwitch('disk-cache-size', String(64 * 1024 * 1024));
+const log = diagnostics(storage.logs);
 log('starting', app.getVersion());
 process.on('uncaughtExceptionMonitor', (error) =>
   log('uncaught-error', error.stack ?? error.message),
@@ -85,12 +106,19 @@ async function start(): Promise<void> {
   });
   const preload = join(directory, 'preload.cjs');
   let quitting = false;
+  let pendingInstaller: string | undefined;
+  const updater = new Updater(
+    join(data, 'updates'),
+    app.getVersion(),
+    app.isPackaged && process.platform === 'win32' && process.arch === 'x64',
+    new GitHubReleases(),
+  );
   const desktop = createDesktop(preload, log, () => quitting);
   const { pet, panel } = desktop;
   const petContents = pet.webContents,
     panelContents = panel.webContents;
   const pointer = new PointerBoundary(pet);
-  const driver = new RendererDriver(petContents);
+  const driver = createRendererDriver(petContents);
   const controller = new Controller(driver, new Journal(join(data, 'receipts.json')));
   const anelf = new AnelfClient(controller);
   const tokenFile = join(data, 'control-token');
@@ -113,6 +141,8 @@ async function start(): Promise<void> {
     apiUrl: local.url,
     apiToken,
     appearance: skins.snapshot(),
+    dataDirectory: storage.data,
+    update: updater.snapshot(),
     secureStorage:
       safeStorage.isEncryptionAvailable() &&
       (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
@@ -135,6 +165,7 @@ async function start(): Promise<void> {
   };
   controller.on('receipt', publish);
   anelf.on('state', publish);
+  updater.on('state', publish);
   const ensurePanel = (event: IpcMainInvokeEvent) => {
     if (event.sender !== panelContents || event.senderFrame !== panelContents.mainFrame)
       throw new Error('Untrusted renderer');
@@ -195,6 +226,26 @@ async function start(): Promise<void> {
   handle('app:remove-skin', (input) => {
     skins.remove(z.string().parse(input));
     publish();
+  });
+  handle('app:open-location', async (input) => {
+    const location = z.enum(['data', 'skins', 'skin-guide']).parse(input);
+    const paths = {
+      data: storage.data,
+      skins: storage.skins,
+      'skin-guide': join(installation, 'docs/skins.md'),
+    };
+    const error = await shell.openPath(paths[location]);
+    if (error) throw new Error(error);
+  });
+  handle('app:update', async (input) => {
+    const action = z.enum(['check', 'download', 'cancel', 'install']).parse(input);
+    if (action === 'check') await updater.check();
+    else if (action === 'download') await updater.download();
+    else if (action === 'cancel') updater.cancel();
+    else {
+      pendingInstaller = await updater.installer();
+      setImmediate(() => app.quit());
+    }
   });
   desktop.scale(skins.current().scale);
   const listen = (name: string, action: (event: IpcMainEvent, ...args: unknown[]) => void) =>
@@ -283,7 +334,7 @@ async function start(): Promise<void> {
     quitting = true;
     void (async () => {
       try {
-        await Promise.all([controller.close(), anelf.disconnect()]);
+        await Promise.all([controller.close(), anelf.disconnect(), updater.close()]);
         await local.close();
       } catch (error) {
         log('shutdown-failed', String(error));
@@ -291,6 +342,16 @@ async function start(): Promise<void> {
         tray.destroy();
         pet.destroy();
         panel.destroy();
+        if (pendingInstaller) {
+          try {
+            await installUpdate(pendingInstaller, installation);
+          } catch (error) {
+            dialog.showErrorBox(
+              '升级启动失败',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
         app.quit();
       }
     })();

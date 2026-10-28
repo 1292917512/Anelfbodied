@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { z } from 'zod';
 import { connectionSchema, type ConnectionConfig } from '../integrations/anelf/schema';
-import type { SettingsView } from './contracts';
+import type { SettingsView } from '../contracts/client';
 
 export interface SecretCodec {
   available(): boolean;

@@ -1,11 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type {
-  DesktopBridge,
-  RendererOrder,
-  Snapshot,
-  CompanionState,
-  PanelView,
-} from './contracts';
+import type { DesktopBridge, Snapshot, CompanionState, PanelView } from '../contracts/client';
+import type { PresentationOrder } from '../protocol/presentation';
 
 const bridge: DesktopBridge = {
   snapshot: () => ipcRenderer.invoke('app:snapshot'),
@@ -20,6 +15,8 @@ const bridge: DesktopBridge = {
   setAppearance: (preference) => ipcRenderer.invoke('app:appearance', preference),
   importSkin: () => ipcRenderer.invoke('app:import-skin'),
   removeSkin: (id) => ipcRenderer.invoke('app:remove-skin', id),
+  openLocation: (location) => ipcRenderer.invoke('app:open-location', location),
+  update: (action) => ipcRenderer.invoke('app:update', action),
   focusPet: (focus) => ipcRenderer.send('pet:focus', focus),
   companion: () => ipcRenderer.invoke('pet:snapshot'),
   onCompanion: (callback) => {
@@ -43,7 +40,8 @@ const bridge: DesktopBridge = {
   answer: (id, result) => ipcRenderer.send('pet:result', id, result),
   ready: () => ipcRenderer.send('pet:ready'),
   onOrder: (callback) => {
-    const handler = (_event: Electron.IpcRendererEvent, order: RendererOrder) => callback(order);
+    const handler = (_event: Electron.IpcRendererEvent, order: PresentationOrder) =>
+      callback(order);
     ipcRenderer.on('pet:order', handler);
     return () => ipcRenderer.removeListener('pet:order', handler);
   },

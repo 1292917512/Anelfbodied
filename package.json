@@ -1,7 +1,7 @@
 {
   "name": "desktop-embodied",
   "productName": "Embodied",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "An independent desktop companion with a shared message and MCP control runtime",
@@ -22,7 +22,8 @@
     "test:e2e": "pnpm build && playwright test",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "pack": "pnpm build && electron-builder --dir",
-    "dist": "pnpm build && electron-builder --publish never"
+    "dist": "pnpm build && electron-builder --win nsis --publish never",
+    "test:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-installer.ps1"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
@@ -62,6 +63,17 @@
       "THIRD_PARTY_NOTICES.md"
     ],
     "asar": true,
+    "afterPack": "scripts/after-pack.mjs",
+    "extraFiles": [
+      {
+        "from": "docs",
+        "to": "docs"
+      },
+      {
+        "from": "README.md",
+        "to": "README.md"
+      }
+    ],
     "win": {
       "icon": "src/renderer/public/skins/fox/fox.png",
       "target": "nsis"
@@ -69,6 +81,20 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "allowElevation": false,
+      "packElevateHelper": false,
+      "perMachine": false,
+      "include": "build/installer.nsh",
+      "license": "LICENSE",
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Embodied",
+      "uninstallDisplayName": "Embodied",
+      "artifactName": "Embodied-Setup-${version}-${arch}.${ext}",
       "deleteAppDataOnUninstall": false
     },
     "mac": {

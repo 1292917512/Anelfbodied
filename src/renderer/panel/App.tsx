@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Snapshot, PanelView } from '../../host/contracts';
+import type { Snapshot, PanelView } from '../../contracts/client';
 import { PROTOCOL } from '../../protocol/schema';
 import { SettingsPanel } from './SettingsPanel';
 import { Receipts } from './Receipts';

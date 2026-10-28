@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Controller, type ActionDriver } from '../src/runtime/controller';
+import { Controller } from '../src/runtime/controller';
+import type { ActionDriver } from '../src/runtime/ports';
 import { Journal } from '../src/runtime/journal';
 import { PROTOCOL, type Command, type ActionResult } from '../src/protocol/schema';
 

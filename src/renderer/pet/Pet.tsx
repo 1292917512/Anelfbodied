@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PetEngine, type PetState } from './engine';
 import { petAnchor } from '../../shared/geometry';
-import type { CompanionState } from '../../host/contracts';
+import type { CompanionState } from '../../contracts/client';
 import { usePetGestures } from './usePetGestures';
 import { usePointerRegions } from './usePointerRegions';
 import { PetBubble } from './PetBubble';

@@ -7,3 +7,5 @@ playwright-report/
 coverage/
 *.log
 *.tgz
+data/
+build/.generated/

@@ -30,6 +30,15 @@ jobs:
         run: |
           $env:EMBODIED_EXECUTABLE = "$env:GITHUB_WORKSPACE/release/win-unpacked/Embodied.exe"
           pnpm exec playwright test
+      - name: Build installer
+        run: pnpm exec electron-builder --win nsis --prepackaged release/win-unpacked --publish never
+      - name: Verify install, upgrade and uninstall
+        run: pnpm run test:installer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Embodied-Windows-installer
+          path: release/Embodied-Setup-*.exe
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         if: always()
         with:

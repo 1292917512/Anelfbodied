@@ -9,6 +9,7 @@ import { mkdtemp, readFile, writeFile, copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -58,10 +59,10 @@ test.beforeEach(async () => {
 });
 test.afterEach(async () => {
   await app?.close();
-  const log = await readFile(join(data, 'runtime.log'), 'utf8');
+  const log = await readFile(join(data, 'logs/runtime.log'), 'utf8');
   expect(log).not.toMatch(/uncaught-error|shutdown-failed/);
   const receipts = await readFile(join(data, 'receipts.json'), 'utf8').catch(() => '');
-  expect(receipts).not.toContain('Renderer did not acknowledge cancellation');
+  expect(receipts).not.toContain('did not acknowledge cancellation');
   expect(errors).toEqual([]);
 });
 const request = (path: string, body?: object) =>
@@ -368,6 +369,57 @@ test('imports a sprite skin, changes scale and switches back without interruptin
       return bounds.right <= innerWidth && bounds.bottom <= innerHeight;
     }),
   ).toBe(true);
+});
+
+test('packaged update interface shows download progress and a verified install action', async () => {
+  test.skip(!process.env.EMBODIED_EXECUTABLE, 'Application updates require a packaged app');
+  const payload = 'verified UI fixture';
+  await app.evaluate(
+    (_electron, fixture) => {
+      const original = globalThis.fetch;
+      globalThis.fetch = async (input, init) => {
+        const url = String(input);
+        if (url.endsWith('/repos/1292917512/DeskTop_Embodied/releases/latest'))
+          return new Response(
+            JSON.stringify({
+              tag_name: 'v9.0.0',
+              draft: false,
+              prerelease: false,
+              assets: [
+                {
+                  name: 'Embodied-Setup-9.0.0-x64.exe',
+                  browser_download_url:
+                    'https://github.com/1292917512/DeskTop_Embodied/releases/download/v9.0.0/Embodied-Setup-9.0.0-x64.exe',
+                  size: fixture.payload.length,
+                  digest: `sha256:${fixture.digest}`,
+                },
+              ],
+            }),
+          );
+        if (url.endsWith('Embodied-Setup-9.0.0-x64.exe'))
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                const bytes = new TextEncoder().encode(fixture.payload);
+                controller.enqueue(bytes.subarray(0, 4));
+                setTimeout(() => {
+                  controller.enqueue(bytes.subarray(4));
+                  controller.close();
+                }, 1200);
+              },
+            }),
+          );
+        return original(input, init);
+      };
+    },
+    { payload, digest: createHash('sha256').update(payload).digest('hex') },
+  );
+  await openSettings();
+  await panel.getByRole('button', { name: '检查更新', exact: true }).click();
+  await panel.getByRole('button', { name: '下载更新', exact: true }).click();
+  await expect(panel.getByRole('progressbar', { name: '更新下载进度' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: '重启并升级', exact: true })).toBeEnabled();
+  await panel.screenshot({ path: 'test-results/update-panel.png' });
 });
 
 for (const [index, scheme] of ['HTTP', 'HTTPS'].entries()) {

@@ -5,17 +5,12 @@ import {
   ControlError,
   PROTOCOL,
   terminal,
-  type Action,
-  type ActionResult,
   type Cancel,
   type Command,
   type Receipt,
 } from '../protocol/schema';
 import { Journal, recordKey } from './journal';
-
-export interface ActionDriver {
-  execute(action: Action, signal: AbortSignal): Promise<ActionResult>;
-}
+import type { ActionDriver } from './ports';
 interface Job {
   owner: string;
   command: Command;

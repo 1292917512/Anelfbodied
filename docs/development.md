@@ -7,11 +7,15 @@ HTTP / MCP / Anelf adapter
            ↓
       runtime/controller → runtime/journal
            ↓ ActionDriver
+     runtime/presentation-driver
+           ↓ PresentationChannel
      host/renderer-driver → preload IPC → pet/engine
 
 host/main：组合根、生命周期、凭据、IPC 授权
 host/desktop：原生窗口、显示器定位、异常恢复
 host/pointer-boundary：桌面鼠标穿透与拖动捕获
+host/storage：安装目录内的运行数据路径
+contracts/client：桌面界面状态与操作接口
 skins/catalog：数据皮肤、偏好、资源读取
 renderer/pet：手势、输入气泡、动作呈现
 renderer/panel：连接配置、历史、回执、外观
@@ -24,6 +28,8 @@ renderer/panel：连接配置、历史、回执、外观
 `usePointerRegions.ts` 在布局与气泡尺寸变化时同步点击区域，原生边界根据系统鼠标位置切换穿透，拖动捕获具有超时。退出时停止接收窗口操作，但继续处理动作回执，待控制器完成取消后销毁窗口。
 
 扩展动作时，在协议声明、动作执行器和能力测试中同时实现。扩展通信方式时，将已验证的消息提交给同一个控制器并给来源稳定身份，不创建另一套取消或去重状态。扩展形象时优先使用数据皮肤。
+
+接入 Unity 等新前端时实现 `PresentationChannel` 或 `ActionDriver`，见 [前端扩展](frontends.md)。通用执行层负责回执匹配、取消超时和断线不重放，Electron 适配器只处理 IPC 和进程事件。目录初始化和安装卸载不属于核心运行时。
 
 ## 验证命令
 
