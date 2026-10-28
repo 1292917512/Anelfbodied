@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "anelf",
+  "name": "Anelf · 银蓝猫耳",
+  "author": "AnelfBodied",
+  "license": "MIT",
+  "animations": {
+    "idle": { "file": "idle.png", "columns": 1, "frames": 1, "fps": 1 }
+  }
+}

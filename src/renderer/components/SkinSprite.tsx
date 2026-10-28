@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Motion, Skin } from '../../skins/schema';
+import { defaultSkinImage } from '../../skins/builtin';
 
 /** Renders a static image or a regular sprite grid without executing skin code. */
 export function SkinSprite({
@@ -33,7 +34,7 @@ export function SkinSprite({
   }, [sprite?.url, sprite?.frames, sprite?.fps, motion, animate]);
   if (!sprite || failed)
     return (
-      <img className="skin-fallback" src="./skins/fox/fox.png" alt={skin?.name ?? '桌宠形象'} />
+      <img className="skin-fallback" src={`./${defaultSkinImage}`} alt={skin?.name ?? '桌宠形象'} />
     );
   const columns = sprite.columns,
     rows = Math.ceil(sprite.frames / columns),

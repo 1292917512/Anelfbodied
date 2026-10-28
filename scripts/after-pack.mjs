@@ -1,25 +1,23 @@
-import { readdir, mkdir, writeFile, copyFile } from 'node:fs/promises';
+import { readdir, mkdir, writeFile, copyFile, readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 
 /** Publishes a skin example and an exact list of installed application files. */
 export default async function afterPack(context) {
   const { appOutDir, packager } = context;
   const project = packager.projectDir;
-  const example = join(appOutDir, 'examples/skins/example-fox');
+  const example = join(appOutDir, 'examples/skins/example-anelf');
   await mkdir(example, { recursive: true });
-  const fox = join(project, 'src/renderer/public/skins/fox');
-  await copyFile(join(fox, 'fox.png'), join(example, 'idle.png'));
-  await copyFile(join(fox, 'LICENSE.txt'), join(example, 'LICENSE.txt'));
+  const source = join(project, 'src/renderer/public/skins/anelf');
+  const manifest = JSON.parse(await readFile(join(source, 'manifest.json'), 'utf8'));
+  await copyFile(join(source, 'idle.png'), join(example, 'idle.png'));
+  await copyFile(join(source, 'LICENSE.txt'), join(example, 'LICENSE.txt'));
   await writeFile(
     join(example, 'manifest.json'),
     JSON.stringify(
       {
-        version: 1,
-        id: 'example-fox',
-        name: '狐狸 · 皮肤示例',
-        author: 'Microsoft Fluent Emoji',
-        license: 'MIT',
-        animations: { idle: { file: 'idle.png', columns: 1, frames: 1, fps: 1 } },
+        ...manifest,
+        id: 'example-anelf',
+        name: 'Anelf · 皮肤示例',
       },
       null,
       2,

@@ -8,6 +8,7 @@ import {
   dialog,
   protocol,
   shell,
+  clipboard,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from 'electron';
@@ -32,6 +33,8 @@ import { Updater } from '../updates/updater';
 import { GitHubReleases } from '../updates/source';
 import { installUpdate } from './install-update';
 import { productName } from '../shared/product';
+import { ConnectionService } from '../application/connection';
+import { applicationIcon } from '../skins/builtin';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 protocol.registerSchemesAsPrivileged([
@@ -122,6 +125,7 @@ async function start(): Promise<void> {
   const driver = createRendererDriver(petContents);
   const controller = new Controller(driver, new Journal(join(data, 'receipts.json')));
   const anelf = new AnelfClient(controller);
+  const connection = new ConnectionService(settings, anelf);
   const tokenFile = join(data, 'control-token');
   const apiToken = existsSync(tokenFile)
     ? readFileSync(tokenFile, 'utf8').trim()
@@ -133,12 +137,14 @@ async function start(): Promise<void> {
     .min(0)
     .max(65535)
     .parse(process.env.EMBODIED_PORT ?? 46187);
-  const local = await startServer(controller, apiToken, port);
+  const local = await startServer(controller, apiToken, port, connection);
   const snapshot = (): Snapshot => ({
     connection: anelf.snapshot(),
     receipts: controller.list(),
     reportableIds: anelf.reportableIds(),
     settings: settings.view(),
+    settingsRevision: connection.revision,
+    connectionUpdating: connection.updating,
     apiUrl: local.url,
     apiToken,
     appearance: skins.snapshot(),
@@ -166,6 +172,7 @@ async function start(): Promise<void> {
   };
   controller.on('receipt', publish);
   anelf.on('state', publish);
+  connection.on('state', publish);
   updater.on('state', publish);
   const ensurePanel = (event: IpcMainInvokeEvent) => {
     if (event.sender !== panelContents || event.senderFrame !== panelContents.mainFrame)
@@ -199,12 +206,26 @@ async function start(): Promise<void> {
       return action(input);
     });
   handle('app:snapshot', snapshot);
-  handle('app:configure', (input) => {
-    settings.save(input);
-    publish();
-  });
-  handle('app:connect', () => anelf.connect(settings.get()));
-  handle('app:disconnect', () => anelf.disconnect());
+  handle('app:configure', (input) => connection.configure(input));
+  handle('app:connect', () => connection.control('connect'));
+  handle('app:disconnect', () => connection.control('disconnect'));
+  handle('app:copy-mcp', () =>
+    clipboard.writeText(
+      JSON.stringify(
+        {
+          mcpServers: {
+            [productName]: {
+              type: 'http',
+              url: `${local.url}/mcp`,
+              headers: { Authorization: `Bearer ${apiToken}` },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    ),
+  );
   handle('app:send', (input) => anelf.send(z.string().max(16000).parse(input)), true);
   handle('app:stop', stop, true);
   handle('pet:snapshot', () => companion(snapshot()), true);
@@ -304,7 +325,7 @@ async function start(): Promise<void> {
   pet.showInactive();
   const tray = new Tray(
     nativeImage
-      .createFromPath(join(directory, '../renderer/skins/fox/fox.png'))
+      .createFromPath(join(directory, '../renderer', applicationIcon))
       .resize({ width: 24, height: 24 }),
   );
   tray.setToolTip(`${productName} · 桌面伙伴`);
@@ -335,7 +356,7 @@ async function start(): Promise<void> {
     quitting = true;
     void (async () => {
       try {
-        await Promise.all([controller.close(), anelf.disconnect(), updater.close()]);
+        await Promise.all([controller.close(), connection.close(), updater.close()]);
         await local.close();
       } catch (error) {
         log('shutdown-failed', String(error));
@@ -364,7 +385,7 @@ async function start(): Promise<void> {
   );
   log('ready', local.url);
   if (existsSync(join(data, 'settings.json')))
-    void anelf.connect(settings.get()).catch((error) => log('connect-failed', String(error)));
+    void connection.control('connect').catch((error) => log('connect-failed', String(error)));
   app.once('will-quit', () => log('quit'));
   if (process.env.EMBODIED_TEST) console.log(`EMBODIED_READY ${local.url}`);
 }

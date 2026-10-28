@@ -54,9 +54,11 @@ export class AnelfClient extends EventEmitter {
       .update(JSON.stringify([this.config?.baseUrl, this.config?.userId, this.config?.sessionId]))
       .digest('hex')}`;
   }
-  async connect(input: unknown): Promise<void> {
+  async connect(input: unknown, signal?: AbortSignal): Promise<void> {
     const config = connectionSchema.parse(input);
+    signal?.throwIfAborted();
     await this.disconnect();
+    signal?.throwIfAborted();
     this.config = config;
     this.stopped = false;
     this.turn = '';
@@ -80,6 +82,7 @@ export class AnelfClient extends EventEmitter {
     await this.loop;
     await this.controller.cancel(this.owner(), { session: this.state.session });
     this.state.status = 'offline';
+    this.state.detail = '';
     this.state.busy = false;
     this.state.draft = '';
     this.notify();
@@ -127,7 +130,7 @@ export class AnelfClient extends EventEmitter {
       throw new Error(this.state.detail);
     }
   }
-  async stop(): Promise<void> {
+  async stop(signal?: AbortSignal): Promise<void> {
     const session = this.state.session;
     this.stopped = true;
     this.state.session = randomUUID();
@@ -135,11 +138,15 @@ export class AnelfClient extends EventEmitter {
     if (!this.config || !this.state.busy) return;
     this.state.detail = '本地动作已停止，等待 Anelf 收束';
     this.notify();
-    const result = await this.post('/api/sessions/control', {
-      ...this.target(),
-      action: 'stop',
-      ...(this.turn ? { run_id: this.turn } : {}),
-    });
+    const result = await this.post(
+      '/api/sessions/control',
+      {
+        ...this.target(),
+        action: 'stop',
+        ...(this.turn ? { run_id: this.turn } : {}),
+      },
+      signal,
+    );
     if (result.status === 'idle') {
       this.state.busy = false;
       this.state.detail = '已停止';
@@ -170,7 +177,11 @@ export class AnelfClient extends EventEmitter {
   private headers(): Record<string, string> {
     return this.config?.token ? { Authorization: `Bearer ${this.config.token}` } : {};
   }
-  private async post(path: string, body: object): Promise<Record<string, unknown>> {
+  private async post(
+    path: string,
+    body: object,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>> {
     const response = await this.fetcher(this.endpoint(path), {
       method: 'POST',
       headers: { ...this.headers(), 'Content-Type': 'application/json' },
@@ -178,6 +189,7 @@ export class AnelfClient extends EventEmitter {
       signal: AbortSignal.any([
         this.abort?.signal ?? new AbortController().signal,
         AbortSignal.timeout(15000),
+        ...(signal ? [signal] : []),
       ]),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

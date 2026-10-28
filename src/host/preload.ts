@@ -7,6 +7,7 @@ const bridge: DesktopBridge = {
   configure: (config) => ipcRenderer.invoke('app:configure', config),
   connect: () => ipcRenderer.invoke('app:connect'),
   disconnect: () => ipcRenderer.invoke('app:disconnect'),
+  copyMcpConfiguration: () => ipcRenderer.invoke('app:copy-mcp'),
   send: (text) => ipcRenderer.invoke('app:send', text),
   stop: () => ipcRenderer.invoke('app:stop'),
   report: (id) => ipcRenderer.invoke('app:report', id),

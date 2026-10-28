@@ -10,10 +10,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { PROTOCOL } from '../../src/protocol/schema';
+import type { ConnectionOverview } from '../../src/contracts/connection';
 
 const require = createRequire(import.meta.url);
 let app: ElectronApplication, panel: Page, pet: Page;
@@ -48,7 +50,7 @@ test.beforeEach(async () => {
       menu: Menu.getApplicationMenu(),
     })),
   ).toEqual({ visible: false, menu: null });
-  await expect(pet.getByAltText('小狐狸 · 临时形象')).toBeVisible();
+  await expect(pet.getByAltText('Anelf · 银蓝猫耳')).toBeVisible();
   await expect(async () => {
     connection = JSON.parse(
       await readFile(join(data, 'connection.json'), 'utf8'),
@@ -314,7 +316,7 @@ test('touch preserves AI work, dragging takes over, and the utility panel stays 
 
 test('imports a sprite skin, changes scale and switches back without interrupting a task', async () => {
   const source = await mkdtemp(join(tmpdir(), 'embodied-skin-e2e-'));
-  await copyFile('src/renderer/public/skins/fox/fox.png', join(source, 'pet.png'));
+  await copyFile('src/renderer/public/skins/anelf/idle.png', join(source, 'pet.png'));
   await writeFile(
     join(source, 'manifest.json'),
     JSON.stringify({
@@ -347,11 +349,11 @@ test('imports a sprite skin, changes scale and switches back without interruptin
     .poll(() => pet.locator('.pet-body').evaluate((element) => element.clientWidth))
     .toBe(210);
   await panel.getByRole('button', { name: '移除皮肤', exact: true }).click();
-  await expect(pet.getByAltText('小狐狸 · 临时形象')).toBeVisible();
+  await expect(pet.getByAltText('Anelf · 银蓝猫耳')).toBeVisible();
   expect((await (await request('/v1/receipts/skin-live')).json()).status).toBe('running');
   await request('/v1/cancel', { id: 'skin-live' });
   const saved = JSON.parse(await readFile(join(data, 'appearance.json'), 'utf8'));
-  expect(saved).toEqual({ skinId: 'fox', scale: 1.5 });
+  expect(saved).toEqual({ skinId: 'anelf', scale: 1.5 });
   await panel.screenshot({ path: 'test-results/appearance-panel.png' });
   await panel.getByRole('slider', { name: '桌宠大小' }).focus();
   await panel.keyboard.press('Home');
@@ -433,9 +435,24 @@ for (const [index, scheme] of ['HTTP', 'HTTPS'].entries()) {
       token: string;
     };
     await openSettings();
-    await panel.getByLabel('频道地址').fill(fixture.urls[index]!);
-    await panel.getByLabel('API Token', { exact: true }).fill(fixture.token);
-    await panel.getByRole('button', { name: '保存并连接' }).click();
+    if (index === 0) {
+      const client = await connectMcp();
+      try {
+        const configured = await client.callTool({
+          name: 'pet_configure_connection',
+          arguments: { baseUrl: fixture.urls[index]!, token: fixture.token },
+        });
+        expect(configured.isError).not.toBe(true);
+        expect(configured.structuredContent).toMatchObject({ connection: { status: 'online' } });
+        await expect(panel.getByLabel('频道地址')).toHaveValue(fixture.urls[index]!);
+      } finally {
+        await client.close();
+      }
+    } else {
+      await panel.getByLabel('频道地址').fill(fixture.urls[index]!);
+      await panel.getByLabel('API Token', { exact: true }).fill(fixture.token);
+      await panel.getByRole('button', { name: '保存并连接' }).click();
+    }
     await expect(panel.locator('.connection')).toContainText('已连接');
     await panel.getByRole('button', { name: '收起浮层' }).click();
     await pet.locator('.pet-body').dblclick({ force: true });
@@ -446,3 +463,120 @@ for (const [index, scheme] of ['HTTP', 'HTTPS'].entries()) {
     await expect(pet.getByText('回执已收到：继续', { exact: true })).toBeVisible();
   });
 }
+
+async function connectMcp() {
+  const client = new Client({ name: 'connection-e2e', version: '1' });
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL('/mcp', connection.url), {
+      requestInit: { headers: { Authorization: `Bearer ${connection.token}` } },
+    }),
+  );
+  return client;
+}
+
+test('MCP configuration stays redacted, updates the UI and prevents stale form edits', async () => {
+  await openSettings();
+  const client = await connectMcp();
+  try {
+    const configured = await client.callTool({
+      name: 'pet_configure_connection',
+      arguments: {
+        baseUrl: 'https://channel.example',
+        token: 'configuration-test-secret',
+        userId: 'agent-user',
+        sessionId: 'agent-session',
+        connect: false,
+      },
+    });
+    expect(configured.isError).not.toBe(true);
+    expect(JSON.stringify(configured)).not.toContain('configuration-test-secret');
+    await expect(panel.getByLabel('用户标识')).toHaveValue('agent-user');
+    const state = configured.structuredContent as unknown as ConnectionOverview;
+    await panel.getByLabel('会话标识').fill('local-draft');
+    await client.callTool({
+      name: 'pet_configure_connection',
+      arguments: { sessionId: 'agent-updated', connect: false },
+    });
+    await expect(
+      panel.getByText('连接配置已由其他入口更新，请载入最新配置后再编辑。'),
+    ).toBeVisible();
+    await expect(panel.getByRole('button', { name: '保存并连接' })).toBeDisabled();
+    await expect(panel.getByLabel('会话标识')).toHaveValue('local-draft');
+    const stale = await client.callTool({
+      name: 'pet_configure_connection',
+      arguments: { userId: 'stale', expectedRevision: state.revision, connect: false },
+    });
+    expect(stale.isError).toBe(true);
+    await panel.getByRole('button', { name: '载入最新配置' }).click();
+    await expect(panel.getByLabel('会话标识')).toHaveValue('agent-updated');
+    const persisted = await readFile(join(data, 'settings.json'), 'utf8');
+    expect(persisted).not.toContain('configuration-test-secret');
+    await panel.getByRole('button', { name: 'MCP / 消息协议', exact: true }).click();
+    await app.evaluate(({ clipboard }) => {
+      clipboard.writeText = async (text) => {
+        (globalThis as typeof globalThis & { copiedMcp: string }).copiedMcp = text;
+      };
+    });
+    await panel.getByRole('button', { name: '复制 MCP 配置', exact: true }).click();
+    await expect(panel.getByRole('button', { name: '已复制 MCP 配置' })).toBeVisible();
+    const copied = await app.evaluate(() =>
+      JSON.parse((globalThis as typeof globalThis & { copiedMcp: string }).copiedMcp),
+    );
+    expect(copied.mcpServers.AnelfBodied).toMatchObject({
+      type: 'http',
+      url: `${connection.url}/mcp`,
+      headers: { Authorization: `Bearer ${connection.token}` },
+    });
+    await panel.screenshot({ path: 'test-results/mcp-configuration.png' });
+  } finally {
+    await client.close();
+  }
+});
+
+test('MCP SDK cancellation stops a channel handshake without losing saved settings', async () => {
+  const server = createServer(() => {});
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Missing test port');
+  const client = await connectMcp();
+  const abort = new AbortController();
+  const pending = client
+    .callTool(
+      {
+        name: 'pet_configure_connection',
+        arguments: { baseUrl: `http://127.0.0.1:${address.port}`, userId: 'cancel-test' },
+      },
+      undefined,
+      { signal: abort.signal },
+    )
+    .catch((error) => error);
+  const snapshot = async () =>
+    (await client.callTool({ name: 'pet_connection_state', arguments: {} }))
+      .structuredContent as unknown as ConnectionOverview;
+  try {
+    await expect.poll(async () => (await snapshot()).connection.status).toBe('connecting');
+    const simultaneous = await client.callTool({
+      name: 'pet_configure_connection',
+      arguments: { userId: 'concurrent', connect: false },
+    });
+    expect(simultaneous.isError).toBe(true);
+    abort.abort();
+    await pending;
+    await expect.poll(async () => (await snapshot()).updating).toBe(false);
+    expect(await snapshot()).toMatchObject({
+      settings: { userId: 'cancel-test' },
+      connection: { status: 'offline' },
+    });
+    await openSettings();
+    await panel.getByRole('button', { name: '保存并连接' }).click();
+    await panel.getByRole('button', { name: '取消连接', exact: true }).click();
+    await expect(panel.locator('.connection')).toContainText('未连接');
+    await expect(panel.getByRole('button', { name: '保存并连接' })).toBeEnabled();
+  } finally {
+    abort.abort();
+    await pending;
+    await client.close();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

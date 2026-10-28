@@ -48,7 +48,7 @@ Run-Setup $Installer "/S /currentuser /D=$destination"
 if (Test-Path -LiteralPath $installerCache) { throw 'Installer cache was not cleared.' }
 $installed = @(Get-Installation)
 if ($installed.Count -ne 1 -or $installed[0].DisplayName -ne $productName) { throw 'Incorrect installed product name.' }
-foreach ($relative in @($executableName, $uninstallerName, 'docs\skins.md', 'docs\frontends.md', 'examples\skins\example-fox\manifest.json')) {
+foreach ($relative in @($executableName, $uninstallerName, 'docs\skins.md', 'docs\frontends.md', 'examples\skins\example-anelf\manifest.json')) {
     Assert-Exists (Join-Path $destination $relative)
 }
 foreach ($shortcut in $shortcuts) { Assert-Exists $shortcut }

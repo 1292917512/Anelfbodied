@@ -5,6 +5,7 @@ import { ZodError } from 'zod';
 import { capabilities, cancelSchema, ControlError } from '../protocol/schema';
 import type { Controller } from '../runtime/controller';
 import { mountMcp } from './mcp-http';
+import type { ConnectionControl } from '../contracts/connection';
 
 export interface LocalServer {
   server: Server;
@@ -15,6 +16,7 @@ export async function startServer(
   controller: Controller,
   token: string,
   port = 0,
+  connection?: ConnectionControl,
 ): Promise<LocalServer> {
   if (token.length < 24) throw new Error('Local control token must contain at least 24 characters');
   const app = express();
@@ -51,7 +53,7 @@ export async function startServer(
   app.post('/v1/cancel', async (req, res) => {
     res.json({ receipts: await controller.cancel('external', cancelSchema.parse(req.body)) });
   });
-  const closeMcp = mountMcp(app, controller);
+  const closeMcp = mountMcp(app, controller, connection);
   app.use(
     (error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
       void _next;

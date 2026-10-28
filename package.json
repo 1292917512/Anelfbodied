@@ -1,7 +1,7 @@
 {
   "name": "anelfbodied",
   "productName": "AnelfBodied",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "An independent desktop companion with a shared message and MCP control runtime",
@@ -78,7 +78,7 @@
       }
     ],
     "win": {
-      "icon": "src/renderer/public/skins/fox/fox.png",
+      "icon": "src/renderer/public/branding/icon.png",
       "target": "nsis"
     },
     "nsis": {

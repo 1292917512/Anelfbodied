@@ -10,7 +10,7 @@
 - 点击停止会同时取消本机动作并向 Anelf 当前会话发送停止请求。后台停止未确认时，界面会保留提示。
 - 关闭二级面板不会退出程序。托盘菜单提供显示、隐藏、切换屏幕、停止和退出。
 
-目前内置的是 Microsoft Fluent Emoji 小狐狸临时形象，只有 **1 张静态图**，配合客户端的触碰和表情动画。支持导入自定义静态或序列帧皮肤，详见 [皮肤协议](docs/skins.md)。没有生成或复制 Coopanion 的角色。
+默认形象为根据用户参考图设计的银蓝猫耳 Q 版角色，配套同形象应用图标。当前提供 **1 帧站姿**，配合客户端的触碰、移动和情绪反馈。支持自定义静态或序列帧皮肤，详见 [皮肤协议](docs/skins.md) 和 [形象素材说明](docs/character.md)。
 
 ## 开发与打包
 
@@ -43,7 +43,7 @@ SSE 中断后自动退避重连；无法确认的发送不自动重发。本轮�
 
 本机控制端默认 `http://127.0.0.1:46187`，控制 Token 在连接设置的「MCP / 消息协议」中查看。所有请求都需要 `Authorization: Bearer <Token>`；服务仅监听回环地址，拒绝浏览器跨站请求。
 
-支持 Streamable HTTP MCP：地址为 `/mcp`，工具为 `pet_capabilities`、`pet_execute`、`pet_cancel`、`pet_state`。执行最长可能持续五分钟，调用方应设置适当的工具超时。SDK 的取消信号会传入执行控制器。
+支持 Streamable HTTP MCP：地址为 `/mcp`，工具为 `pet_capabilities`、`pet_execute`、`pet_cancel`、`pet_state`。执行最长可能持续五分钟，调用方应设置适当的工具超时。SDK 的取消信号会传入执行控制器。另提供 `pet_connection_state`、`pet_configure_connection`、`pet_connection_control`，让已认证的 Agent 管理频道设置、连接和停止；详见 [MCP 连接配置](docs/mcp-connection.md)。设置页可直接复制 MCP 客户端配置。
 
 仅支持 stdio 的 MCP 客户端可连接已运行的桌宠：
 

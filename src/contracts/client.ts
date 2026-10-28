@@ -1,17 +1,17 @@
 import type { ActionResult, Receipt } from '../protocol/schema';
 import type { PresentationOrder } from '../protocol/presentation';
-import type { ConnectionConfig, ConnectionState } from '../integrations/anelf/schema';
+import type { ConnectionState } from '../integrations/anelf/schema';
+import type { SettingsView, ConfigureConnection, ConnectionOverview } from './connection';
 import type { Appearance, Skin } from '../skins/schema';
 import type { UpdateState } from './update';
 
-export interface SettingsView extends Omit<ConnectionConfig, 'token'> {
-  hasToken: boolean;
-}
 export interface Snapshot {
   connection: ConnectionState;
   receipts: Receipt[];
   reportableIds: string[];
   settings: SettingsView;
+  settingsRevision: string;
+  connectionUpdating: boolean;
   apiUrl: string;
   apiToken: string;
   secureStorage: boolean;
@@ -29,9 +29,10 @@ export interface CompanionState extends Pick<
 }
 export interface DesktopBridge {
   snapshot(): Promise<Snapshot>;
-  configure(config: ConnectionConfig & { clearToken?: boolean }): Promise<void>;
-  connect(): Promise<void>;
-  disconnect(): Promise<void>;
+  configure(config: ConfigureConnection): Promise<ConnectionOverview>;
+  connect(): Promise<ConnectionOverview>;
+  disconnect(): Promise<ConnectionOverview>;
+  copyMcpConfiguration(): Promise<void>;
   send(text: string): Promise<void>;
   stop(): Promise<void>;
   report(id: string): Promise<void>;

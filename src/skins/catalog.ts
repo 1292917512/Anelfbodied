@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
+import { defaultSkinId } from './builtin';
 import {
   appearanceSchema,
   skinSchema,
@@ -28,7 +29,7 @@ type Probe = (buffer: Buffer) => { width: number; height: number };
 /** Validates data-only skin packs and serves only their declared images. */
 export class SkinCatalog {
   private readonly packs = new Map<string, Pack>();
-  private selected = { skinId: 'fox', scale: 1 };
+  private selected = { skinId: defaultSkinId, scale: 1 };
   private readonly settings: string;
   private readonly imported: string;
   constructor(
@@ -56,13 +57,13 @@ export class SkinCatalog {
         }
       }
     }
-    if (!this.packs.has('fox')) throw new Error('The built-in fox skin is missing or invalid');
+    if (!this.packs.has(defaultSkinId)) throw new Error('The default skin is missing or invalid');
     if (existsSync(this.settings)) {
       try {
         const selected = appearanceSchema.parse(JSON.parse(readFileSync(this.settings, 'utf8')));
         this.selected = {
           ...selected,
-          skinId: this.packs.has(selected.skinId) ? selected.skinId : 'fox',
+          skinId: this.packs.has(selected.skinId) ? selected.skinId : defaultSkinId,
         };
       } catch {
         this.report('Invalid appearance settings; using the built-in skin');
@@ -117,7 +118,7 @@ export class SkinCatalog {
   remove(id: string): void {
     const pack = this.packs.get(id);
     if (!pack || pack.skin.builtin) throw new Error('不能移除内置皮肤');
-    if (this.selected.skinId === id) this.select({ ...this.selected, skinId: 'fox' });
+    if (this.selected.skinId === id) this.select({ ...this.selected, skinId: defaultSkinId });
     const directory = resolve(this.imported, id);
     if (directory !== join(this.imported, pack.manifest.id)) throw new Error('Invalid skin path');
     rmSync(directory, { recursive: true, force: true });

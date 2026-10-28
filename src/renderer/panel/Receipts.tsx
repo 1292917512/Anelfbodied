@@ -22,7 +22,7 @@ export function Receipts({
       <p className="muted">
         最近 {receipts.length} 条 · 取消时保留已完成步骤，重连后不重播历史动作。
       </p>
-      {!receipts.length && <div className="empty">还没有动作。试着和小狐狸打个招呼。</div>}
+      {!receipts.length && <div className="empty">还没有动作。试着和桌宠打个招呼。</div>}
       {receipts.map((receipt, index) => (
         <article key={`${receipt.id}-${index}`} className="receipt" data-status={receipt.status}>
           <div className="receipt-top">

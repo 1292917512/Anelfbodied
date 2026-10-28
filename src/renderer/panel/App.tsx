@@ -5,7 +5,7 @@ import { SettingsPanel } from './SettingsPanel';
 import { Receipts } from './Receipts';
 import { Icon } from '../components/Icon';
 import { AppearancePanel } from './AppearancePanel';
-import { SkinSprite } from '../components/SkinSprite';
+import { applicationIcon } from '../../skins/builtin';
 import { productName } from '../../shared/product';
 
 function messageText(text: string): string {
@@ -69,12 +69,7 @@ export function App() {
       <header className="float-header">
         <div className="companion-identity">
           <span className="header-skin">
-            <SkinSprite
-              skin={snapshot.appearance.skins.find(
-                (skin) => skin.id === snapshot.appearance.skinId,
-              )}
-              animate={false}
-            />
+            <img src={`./${applicationIcon}`} alt="" />
           </span>
           <div>
             <strong>{productName}</strong>

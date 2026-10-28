@@ -167,6 +167,29 @@
   color: #828775;
   margin-top: 13px;
 }
+.configuration-conflict {
+  padding: 12px;
+  border: 1px solid #dfc99c;
+  border-radius: 12px;
+  background: #fff7e6;
+  font-size: 11px;
+}
+.configuration-conflict p {
+  margin-bottom: 8px;
+}
+.mcp-tools {
+  font-size: 11px;
+  margin-top: 18px;
+}
+.mcp-tools dt {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+.mcp-tools dd {
+  margin: 4px 0 14px;
+  color: var(--muted);
+  line-height: 1.6;
+}
 .settings-view input {
   margin-top: 7px;
   font-size: 11px;
