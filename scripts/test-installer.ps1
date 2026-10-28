@@ -9,6 +9,7 @@ $Installer = (Resolve-Path -LiteralPath $Installer).Path
 $registryRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
 $installerCache = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'desktop-embodied-updater\installer.exe'
 function Get-Installation {
+    if (-not (Test-Path -LiteralPath $registryRoot)) { return @() }
     @(Get-ChildItem -LiteralPath $registryRoot | Get-ItemProperty | Where-Object { $_.DisplayName -eq 'Embodied' })
 }
 if ((Get-Installation).Count) { throw 'An installed Embodied already exists. Use a clean account for installer tests.' }
