@@ -1,0 +1,192 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { createServer, type ServerResponse } from 'node:http';
+import { AnelfClient } from '../src/integrations/anelf/client';
+import { Controller, type ActionDriver } from '../src/runtime/controller';
+import { Journal } from '../src/runtime/journal';
+import { PROTOCOL } from '../src/protocol/schema';
+
+const cleanup: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  for (const close of cleanup.reverse()) await close();
+  cleanup.length = 0;
+});
+
+async function fixture(driver: ActionDriver) {
+  const streams = new Set<ServerResponse>();
+  const requests: { path: string; data: Record<string, unknown> }[] = [];
+  const state = {
+    rejectAuth: false,
+    dropPost: false,
+    stopStatus: 'idle',
+    subscriptions: 0,
+    history: [] as { id: number; role: string; content: string }[],
+  };
+  const server = createServer(async (req, res) => {
+    if (state.rejectAuth || req.headers.authorization !== 'Bearer fixture-token') {
+      res.writeHead(401).end();
+      return;
+    }
+    const path = new URL(req.url!, 'http://localhost').pathname;
+    if (path === '/api/chat/stream') {
+      state.subscriptions++;
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(': connected\n\n');
+      streams.add(res);
+      req.on('close', () => streams.delete(res));
+      return;
+    }
+    if (path === '/api/sessions/history') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ messages: state.history }));
+      return;
+    }
+    let raw = '';
+    for await (const chunk of req) raw += String(chunk);
+    requests.push({ path, data: JSON.parse(raw) as Record<string, unknown> });
+    if (state.dropPost && path === '/api/chat') {
+      res.destroy();
+      return;
+    }
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ status: path.includes('control') ? state.stopStatus : 'accepted' }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('No port');
+  const controller = new Controller(driver, new Journal());
+  const client = new AnelfClient(controller);
+  cleanup.push(async () => {
+    await client.disconnect();
+    await controller.close();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+  const config = {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    token: 'fixture-token',
+    userId: 'pet',
+    sessionId: 'desk',
+  };
+  const frame = (data: object) => {
+    const bytes = Buffer.from(`data: ${JSON.stringify(data)}\n\n`);
+    for (const stream of streams) {
+      stream.write(bytes.subarray(0, bytes.length - 5));
+      stream.write(bytes.subarray(bytes.length - 5));
+    }
+  };
+  return {
+    client,
+    controller,
+    config,
+    requests,
+    state,
+    frame,
+    reconnect: () => {
+      for (const stream of streams) stream.end();
+    },
+  };
+}
+
+describe('Anelf HTTP channel adapter', () => {
+  it('executes only live commands, deduplicates replay and returns user answers as events', async () => {
+    let calls = 0;
+    const f = await fixture({
+      execute: async () => {
+        calls++;
+        return { outcome: 'completed', answer: '继续' };
+      },
+    });
+    f.state.history = [{ id: 1, role: 'assistant', content: '历史不会执行' }];
+    await f.client.connect(f.config);
+    await expect.poll(() => f.client.snapshot().status).toBe('online');
+    expect(calls).toBe(0);
+    await f.client.send('请询问我');
+    const command = {
+      protocol: PROTOCOL,
+      id: 'question',
+      session: f.client.snapshot().session,
+      expiresAt: Date.now() + 30000,
+      commands: [{ action: 'ask', question: '继续吗？', options: ['继续'], durationMs: 1000 }],
+    };
+    f.frame({ type: 'reply', content: JSON.stringify(command), session_id: 'desk' });
+    await expect
+      .poll(() => f.requests.filter((request) => request.data.kind === 'event').length)
+      .toBe(1);
+    const report = f.requests.find((request) => request.data.kind === 'event')!;
+    expect(JSON.parse(String(report.data.message)).receipt.results[0].answer).toBe('继续');
+    f.frame({ type: 'reply', content: JSON.stringify(command) });
+    f.frame({ type: 'turn_end' });
+    f.state.history.push({ id: 2, role: 'assistant', content: JSON.stringify(command) });
+    f.reconnect();
+    await expect.poll(() => f.state.subscriptions).toBe(2);
+    await expect.poll(() => f.client.snapshot().status).toBe('online');
+    expect(calls).toBe(1);
+    expect(f.requests.filter((request) => request.data.kind === 'event')).toHaveLength(1);
+    expect(
+      f.client.snapshot().messages.filter((line) => line.text === JSON.stringify(command)),
+    ).toHaveLength(1);
+  });
+
+  it('targets the observed Anelf run, cancels local work and rejects late replies after stopping', async () => {
+    let calls = 0;
+    const f = await fixture({
+      execute: async (_action, signal) => {
+        calls++;
+        return new Promise((resolve) =>
+          signal.addEventListener('abort', () => resolve({ outcome: 'cancelled' }), { once: true }),
+        );
+      },
+    });
+    await f.client.connect(f.config);
+    await expect.poll(() => f.client.snapshot().status).toBe('online');
+    await f.client.send('开始');
+    f.frame({ type: 'delta', delta: '正在准备', turn_id: 'run-one' });
+    f.frame({ type: 'reply', content: '你好' });
+    await expect.poll(() => calls).toBe(1);
+    await f.client.stop();
+    expect(f.requests.find((request) => request.path.endsWith('/control'))?.data.run_id).toBe(
+      'run-one',
+    );
+    expect(f.controller.list()[0]?.status).toBe('cancelled');
+    f.frame({ type: 'reply', content: '迟到的回复' });
+    f.frame({ type: 'turn_end', turn_id: 'run-one' });
+    await expect
+      .poll(() => f.client.snapshot().messages.some((line) => line.text === '迟到的回复'))
+      .toBe(true);
+    expect(calls).toBe(1);
+    await f.client.send('新任务');
+    f.frame({ type: 'reply', content: '新回复' });
+    await expect.poll(() => calls).toBe(2);
+  });
+
+  it('keeps uncertain sends blocked until explicit stop and stops retrying invalid credentials', async () => {
+    const f = await fixture({ execute: async () => ({ outcome: 'completed' }) });
+    await f.client.connect(f.config);
+    await expect.poll(() => f.client.snapshot().status).toBe('online');
+    f.state.dropPost = true;
+    await expect(f.client.send('发送')).rejects.toThrow('未确认');
+    expect(f.client.snapshot().busy).toBe(true);
+    await expect(f.client.send('不要重发')).rejects.toThrow();
+    await f.client.stop();
+    expect(f.client.snapshot().busy).toBe(false);
+    f.state.rejectAuth = true;
+    await f.client.connect(f.config);
+    await expect.poll(() => f.client.snapshot().status).toBe('error');
+    expect(f.client.snapshot().detail).toContain('认证失败');
+  });
+
+  it('recovers SSE while a turn is uncertain and accepts explicit synchronization', async () => {
+    const f = await fixture({ execute: async () => ({ outcome: 'completed' }) });
+    await f.client.connect(f.config);
+    await expect.poll(() => f.client.snapshot().status).toBe('online');
+    await f.client.send('执行');
+    f.reconnect();
+    await expect.poll(() => f.state.subscriptions).toBe(2);
+    await expect.poll(() => f.client.snapshot().status).toBe('online');
+    expect(f.client.snapshot().detail).toContain('状态未确认');
+    expect(f.client.snapshot().busy).toBe(true);
+    await f.client.stop();
+    await f.client.send('继续');
+    expect(f.client.snapshot().busy).toBe(true);
+  });
+});

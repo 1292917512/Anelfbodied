@@ -1,0 +1,40 @@
+import { z } from 'zod';
+
+export const connectionSchema = z.object({
+  baseUrl: z
+    .string()
+    .url()
+    .refine((value) => {
+      const url = new URL(value);
+      return (
+        ['http:', 'https:'].includes(url.protocol) &&
+        !url.username &&
+        !url.password &&
+        !url.search &&
+        !url.hash
+      );
+    }, 'Use an HTTP(S) base URL without credentials or query')
+    .transform((value) => new URL(value).href.replace(/\/$/, '')),
+  token: z.string().max(4096).default(''),
+  userId: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[^#\s]+$/)
+    .default('desktop_pet'),
+  sessionId: z.string().min(1).max(128).default('companion'),
+});
+export type ConnectionConfig = z.infer<typeof connectionSchema>;
+export interface ChatLine {
+  id: string;
+  role: string;
+  text: string;
+}
+export interface ConnectionState {
+  status: 'offline' | 'connecting' | 'online' | 'reconnecting' | 'error';
+  detail: string;
+  messages: ChatLine[];
+  draft: string;
+  session: string;
+  busy: boolean;
+}
