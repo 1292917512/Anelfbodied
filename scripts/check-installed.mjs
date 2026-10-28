@@ -26,6 +26,11 @@ try {
   for (const path of Object.values(paths)) assert.ok(path === data || path.startsWith(data + sep));
   const window = await application.firstWindow();
   await window.waitForFunction(() => Boolean(window.embodied));
+  const panel = application.windows().find((page) => !page.url().includes('view=pet'));
+  assert.ok(panel);
+  await panel.waitForFunction(() => Boolean(window.embodied));
+  const state = await panel.evaluate(() => window.embodied.snapshot());
+  assert.ok(state.appearance.skins.some((skin) => skin.id === 'example-anelf' && !skin.builtin));
   for (let i = 0; i < 100; i++) {
     try {
       await readFile(join(data, 'connection.json'));

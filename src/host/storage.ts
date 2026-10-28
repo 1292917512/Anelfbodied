@@ -25,4 +25,4 @@ export function prepareStorage(installation: string, override?: string) {
   return paths;
 }
 
-const skinFolderGuide = `# 自定义皮肤\n\n每套皮肤放在单独的目录中，目录名与 manifest.json 的 id 一致。\n请优先通过桌宠的“导入皮肤文件夹”导入，程序会验证图片和配置。\n手动修改已导入的资源后需要重启桌宠；请勿在程序运行时移动或删除正在使用的皮肤。\n\n安装目录的 docs/skins.md 包含完整协议，examples/skins 中有可直接导入的示例。\n内置资源在程序包中，本目录只保存自定义皮肤。\n卸载会删除本目录，请将二次开发的源素材保存在安装目录之外。\n`;
+const skinFolderGuide = `# 自定义皮肤\n\n每套皮肤放在单独的目录中，目录名与 manifest.json 的 id 一致。\n请优先通过桌宠的“导入皮肤文件夹”导入，程序会验证图片和配置。\n手动修改已导入的资源后需要重启桌宠；请勿在程序运行时移动或删除正在使用的皮肤。\n\n安装目录的 docs/skins.md 包含完整协议，安装程序将示例放在本目录的 example-anelf 文件夹中。\n内置资源在程序包中，本目录统一保存示例和自定义皮肤。\n卸载会删除本目录，请将二次开发的源素材保存在安装目录之外。\n`;

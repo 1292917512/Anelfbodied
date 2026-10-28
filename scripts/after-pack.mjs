@@ -1,18 +1,17 @@
-import { readdir, mkdir, writeFile, copyFile, readFile } from 'node:fs/promises';
+import { readdir, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 
-/** Publishes a skin example and an exact list of installed application files. */
+/** Generates the skin example manifest and the installed application file list. */
 export default async function afterPack(context) {
   const { appOutDir, packager } = context;
   const project = packager.projectDir;
-  const example = join(appOutDir, 'examples/skins/example-anelf');
-  await mkdir(example, { recursive: true });
+  if (context.electronPlatformName !== 'win32') return;
+  const generated = join(project, '.build/nsis');
+  await mkdir(generated, { recursive: true });
   const source = join(project, 'src/renderer/public/skins/anelf');
   const manifest = JSON.parse(await readFile(join(source, 'manifest.json'), 'utf8'));
-  await copyFile(join(source, 'idle.png'), join(example, 'idle.png'));
-  await copyFile(join(source, 'LICENSE.txt'), join(example, 'LICENSE.txt'));
   await writeFile(
-    join(example, 'manifest.json'),
+    join(generated, 'example-manifest.json'),
     JSON.stringify(
       {
         ...manifest,
@@ -23,8 +22,6 @@ export default async function afterPack(context) {
       2,
     ),
   );
-  await copyFile(join(project, 'docs/skins.md'), join(appOutDir, 'examples/skins/README.md'));
-  if (context.electronPlatformName !== 'win32') return;
   const files = [],
     directories = [];
   async function collect(directory) {
@@ -57,7 +54,5 @@ export default async function afterPack(context) {
       ),
     ...directories.map((name) => `RMDir "$INSTDIR\\${quote(name)}"`),
   ];
-  const generated = join(project, 'build/.generated');
-  await mkdir(generated, { recursive: true });
   await writeFile(join(generated, 'uninstall-files.nsh'), commands.join('\n') + '\n');
 }

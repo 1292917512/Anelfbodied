@@ -39,7 +39,7 @@ renderer/panel：连接配置、历史、回执、外观
 
 ```powershell
 pnpm run pack
-$env:EMBODIED_EXECUTABLE = "$PWD/release/win-unpacked/AnelfBodied.exe"
+$env:EMBODIED_EXECUTABLE = "$PWD/.build/package/win-unpacked/AnelfBodied.exe"
 pnpm exec playwright test
 ```
 

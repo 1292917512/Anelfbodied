@@ -11,7 +11,6 @@ AnelfBodied/
   resources/                 程序与内置资源
   locales/                   桌面运行时语言资源
   docs/                      协议、安装和二次开发说明
-  examples/skins/             可直接导入的皮肤示例
   installation.ini           安装目录身份标记
   data/
     settings.json            频道设置与加密凭据
@@ -19,7 +18,8 @@ AnelfBodied/
     control-token            本机控制凭据
     connection.json          本机控制连接信息
     receipts.json            有界命令回执与去重记录
-    skins/                   导入的皮肤与目录说明
+    skins/                   自定义皮肤与目录说明
+      example-anelf/         可直接选择和修改的示例皮肤
     cache/                   Electron 会话与缓存
     logs/                    有界运行日志
     crashes/                 异常转储
@@ -36,7 +36,7 @@ Electron 还可能在 `data/` 中保存自己的本地状态文件。安装器�
 
 更新包只保留一份，下载中断或取消会清理临时文件。新版本启动后清理已用的更新包；文件尚被安装器占用时短暂重试。不会自动下载或在用户未点击时退出升级。
 
-也可关闭桌宠后直接运行新安装包。两种方式都使用原安装目录，保留 `data/` 中的凭据、皮肤和回执。安装目录不会混入构建或测试时的数据。
+也可关闭桌宠后直接运行新安装包。两种方式都使用原安装目录，保留 `data/` 中的凭据、皮肤和回执。示例皮肤直接安装到 `data/skins/example-anelf/`；目录已经存在时不覆盖，保留修改过的图片和清单。安装目录不会混入构建或测试时的数据。
 
 发布新版本需在项目 GitHub Release 中上传 `AnelfBodied-Setup-<版本>-x64.exe`，版本号与程序一致。更新器使用 [GitHub 提供的资源 SHA-256](https://docs.github.com/en/rest/releases/assets) 校验，缺少校验或地址不匹配时拒绝下载。没有新发布版本时明确显示当前状态，不修改任何配置。
 
@@ -56,4 +56,4 @@ Electron 还可能在 `data/` 中保存自己的本地状态文件。安装器�
 
 `pnpm run test:installer` 在项目 `.local/installer-smoke/` 下测试安装、启动、升级与卸载。为避免影响正式安装，检测到当前用户已有安装或同名快捷方式时停止。测试检查运行路径、文档、示例、升级数据保留、完整卸载、快捷方式与注册项清理，以及目录链接和无关文件的边界。
 
-打包扩展在 `scripts/after-pack.mjs`，NSIS 定制在 `build/installer.nsh`。卸载文件清单由实际打包内容生成，避免手写文件列表与发行物不一致。定制保留 electron-builder 的标准安装器流程，使用其 [NSIS 扩展接口](https://www.electron.build/docs/nsis/)。
+`scripts/installer.mjs` 构建安装器并将成功的单个 EXE 放入 `release/`，其他打包产物留在 `.build/package/`。`scripts/after-pack.mjs` 在 `.build/nsis/` 生成示例皮肤清单及卸载文件清单；NSIS 定制在 `build/installer.nsh`。卸载文件清单来自实际打包内容，避免手写文件列表与发行物不一致。定制保留 electron-builder 的标准安装器流程，使用其 [NSIS 扩展接口](https://www.electron.build/docs/nsis/)。

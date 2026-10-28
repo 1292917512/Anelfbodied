@@ -48,19 +48,26 @@ Run-Setup $Installer "/S /currentuser /D=$destination"
 if (Test-Path -LiteralPath $installerCache) { throw 'Installer cache was not cleared.' }
 $installed = @(Get-Installation)
 if ($installed.Count -ne 1 -or $installed[0].DisplayName -ne $productName) { throw 'Incorrect installed product name.' }
-foreach ($relative in @($executableName, $uninstallerName, 'docs\skins.md', 'docs\frontends.md', 'examples\skins\example-anelf\manifest.json')) {
+foreach ($relative in @($executableName, $uninstallerName, 'docs\skins.md', 'docs\frontends.md', 'data\skins\example-anelf\manifest.json', 'data\skins\example-anelf\idle.png', 'data\skins\example-anelf\LICENSE.txt')) {
     Assert-Exists (Join-Path $destination $relative)
 }
 foreach ($shortcut in $shortcuts) { Assert-Exists $shortcut }
+if (Test-Path -LiteralPath (Join-Path $destination 'examples')) { throw 'Skin examples must only exist inside data/skins.' }
 & node (Join-Path $PSScriptRoot 'check-installed.mjs') (Join-Path $destination $executableName)
 if ($LASTEXITCODE -ne 0) { throw 'Installed runtime verification failed.' }
 $sentinel = Join-Path $destination 'data\upgrade-sentinel.txt'
 $token = Join-Path $destination 'data\control-token'
 $tokenHash = File-Digest $token
+$exampleFile = Join-Path $destination 'data\skins\example-anelf\manifest.json'
+$example = Get-Content -LiteralPath $exampleFile -Raw | ConvertFrom-Json
+$example.name = 'Edited example'
+[System.IO.File]::WriteAllText($exampleFile, ($example | ConvertTo-Json -Depth 8), [System.Text.UTF8Encoding]::new($false))
+$exampleHash = File-Digest $exampleFile
 Write-Output 'Checking upgrade preserves application data.'
 Run-Setup $Installer "/S /currentuser /D=$destination"
 Assert-Exists $sentinel
 if ((File-Digest $token) -ne $tokenHash) { throw 'Upgrade changed control credentials.' }
+if ((File-Digest $exampleFile) -ne $exampleHash) { throw 'Upgrade overwrote the edited skin example.' }
 Write-Output 'Checking the application upgrade launcher and restart.'
 $updates = Join-Path $destination 'data\updates'
 New-Item -ItemType Directory -Path $updates -Force | Out-Null
@@ -80,6 +87,7 @@ $restarted | Stop-Process -Force
 Start-Sleep -Seconds 1
 Assert-Exists $sentinel
 if ((File-Digest $token) -ne $tokenHash) { throw 'Application upgrade changed control credentials.' }
+if ((File-Digest $exampleFile) -ne $exampleHash) { throw 'Application upgrade overwrote the edited skin example.' }
 $outside = Join-Path $testRoot 'outside'
 New-Item -ItemType Directory -Path $outside | Out-Null
 Set-Content -LiteralPath (Join-Path $outside 'keep.txt') -Value 'outside installation'

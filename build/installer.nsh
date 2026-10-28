@@ -17,8 +17,14 @@
 
 !macro customInstall
   CreateDirectory "$INSTDIR\data\skins"
-  IfFileExists "$INSTDIR\data\skins\README.md" +2 0
-    CopyFiles /SILENT "$INSTDIR\docs\skins.md" "$INSTDIR\data\skins\README.md"
+  CopyFiles /SILENT "$INSTDIR\docs\skins.md" "$INSTDIR\data\skins\README.md"
+  IfFileExists "$INSTDIR\data\skins\example-anelf" skin_example_ready
+    SetOutPath "$INSTDIR\data\skins\example-anelf"
+    File /oname=manifest.json "${BUILD_RESOURCES_DIR}\..\.build\nsis\example-manifest.json"
+    File "${BUILD_RESOURCES_DIR}\..\src\renderer\public\skins\anelf\idle.png"
+    File "${BUILD_RESOURCES_DIR}\..\src\renderer\public\skins\anelf\LICENSE.txt"
+  skin_example_ready:
+  SetOutPath "$INSTDIR"
   WriteINIStr "$INSTDIR\installation.ini" "Embodied" "AppId" "${APP_ID}"
   Delete "$LOCALAPPDATA\${APP_INSTALLER_STORE_FILE}"
   ${GetParent} "$LOCALAPPDATA\${APP_INSTALLER_STORE_FILE}" $R0
@@ -38,7 +44,7 @@
     Abort
   ${EndIf}
   SetOutPath $TEMP
-  !include "${BUILD_RESOURCES_DIR}\.generated\uninstall-files.nsh"
+  !include "${BUILD_RESOURCES_DIR}\..\.build\nsis\uninstall-files.nsh"
   ${IfNot} ${isUpdated}
     Push "$INSTDIR\data"
     Call un.RemoveOwnedTree
