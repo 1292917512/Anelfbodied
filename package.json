@@ -22,7 +22,7 @@
     "start": "pnpm build && electron .",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "format:check": "prettier --check src tests scripts *.json *.ts *.mjs *.yaml README.md docs .github",
+    "format:check": "prettier --check src tests scripts *.json *.ts *.mjs *.yaml README.md docs skills .github",
     "test": "vitest run",
     "test:e2e": "pnpm build && playwright test",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
@@ -72,6 +72,10 @@
       {
         "from": "docs",
         "to": "docs"
+      },
+      {
+        "from": "skills",
+        "to": "skills"
       },
       {
         "from": "README.md",

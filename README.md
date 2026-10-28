@@ -87,3 +87,9 @@ await fetch('http://127.0.0.1:46187/v1/commands', {
 ```
 
 动作与可靠性边界见 [控制协议](docs/protocol.md)，模块划分见 [开发说明](docs/development.md)，Unity 等前端的接口边界见 [前端扩展](docs/frontends.md)。
+
+## AI 操作 Skill
+
+项目与安装包均提供 [anelfbodied-control](skills/anelfbodied-control/SKILL.md)。将整个 `skills/anelfbodied-control/` 文件夹交给 Agent 的 Skill 加载器，保留 `references/` 的目录层级。入口按 MCP、HTTP、Anelf 频道和表达、移动、问答、连接管理、取消恢复分别引导阅读。
+
+Skill 描述当前客户端的实际能力，不会自动接入 MCP 或注入 Anelf 服务端上下文。首次使用仍需提供桌宠设置页的 MCP 配置；已通过 Anelf 频道回复的 Agent 可以直接按照对应协议文档操作。

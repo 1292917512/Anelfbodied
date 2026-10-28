@@ -1,0 +1,4 @@
+interface:
+  display_name: 'AnelfBodied 桌面具身控制'
+  short_description: '让 AI 控制桌宠表达、移动和提问，管理频道连接并核对取消与执行回执'
+  default_prompt: '使用 $anelfbodied-control 完成我的桌宠操作，通过实际回执确认结果。'

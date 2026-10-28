@@ -48,7 +48,19 @@ Run-Setup $Installer "/S /currentuser /D=$destination"
 if (Test-Path -LiteralPath $installerCache) { throw 'Installer cache was not cleared.' }
 $installed = @(Get-Installation)
 if ($installed.Count -ne 1 -or $installed[0].DisplayName -ne $productName) { throw 'Incorrect installed product name.' }
-foreach ($relative in @($executableName, $uninstallerName, 'docs\skins.md', 'docs\frontends.md', 'data\skins\example-anelf\manifest.json', 'data\skins\example-anelf\idle.png', 'data\skins\example-anelf\LICENSE.txt')) {
+$requiredFiles = @(
+    $executableName,
+    $uninstallerName,
+    'docs\skins.md',
+    'docs\frontends.md',
+    'skills\anelfbodied-control\SKILL.md',
+    'skills\anelfbodied-control\references\access\mcp.md',
+    'skills\anelfbodied-control\references\control\execution.md',
+    'data\skins\example-anelf\manifest.json',
+    'data\skins\example-anelf\idle.png',
+    'data\skins\example-anelf\LICENSE.txt'
+)
+foreach ($relative in $requiredFiles) {
     Assert-Exists (Join-Path $destination $relative)
 }
 foreach ($shortcut in $shortcuts) { Assert-Exists $shortcut }

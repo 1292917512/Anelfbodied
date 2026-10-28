@@ -11,6 +11,7 @@ AnelfBodied/
   resources/                 程序与内置资源
   locales/                   桌面运行时语言资源
   docs/                      协议、安装和二次开发说明
+  skills/anelfbodied-control/ AI 操作 Skill 与分层参考文档
   installation.ini           安装目录身份标记
   data/
     settings.json            频道设置与加密凭据
