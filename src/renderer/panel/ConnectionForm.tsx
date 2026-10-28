@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Snapshot } from '../../contracts/client';
 import type { ConnectionOverview } from '../../contracts/connection';
+import { ChannelGuide } from './ChannelGuide';
 
 export function ConnectionForm({
   snapshot,
@@ -194,6 +195,7 @@ export function ConnectionForm({
           </button>
         </div>
       </form>
+      <ChannelGuide snapshot={snapshot} blocked={pending || dirty || conflict} run={run} />
     </section>
   );
 }

@@ -6,6 +6,8 @@ import type { Controller } from '../../runtime/controller';
 import { connectionSchema, type ConnectionConfig, type ConnectionState } from './schema';
 import { consumeSse } from './sse';
 import { checkStreamResponse, connectionFailure, ConnectionFailure } from './connection-error';
+import { channelGuide } from './guide';
+import type { LocalControlConnection } from '../../shared/mcp-configuration';
 
 /** Exchanges speech over HTTP/SSE and displays live replies as local bubbles. */
 export class AnelfClient extends EventEmitter {
@@ -73,6 +75,13 @@ export class AnelfClient extends EventEmitter {
     this.notify();
   }
   async send(text: string): Promise<void> {
+    return this.sendMessage(text, this.skillSelection());
+  }
+  async sendGuide(local: LocalControlConnection): Promise<void> {
+    if (!this.config?.skillName) throw new Error('请先填写并保存技能名称');
+    return this.sendMessage(channelGuide(this.config.skillName, local), {});
+  }
+  private async sendMessage(text: string, selection: { skills?: string[] }): Promise<void> {
     if (this.state.status !== 'online' || this.state.busy)
       throw new Error('请等待连接或当前回复结束');
     if (!text.trim() || text.length > 16000) throw new Error('消息不能为空，最多 16000 字');
@@ -87,7 +96,7 @@ export class AnelfClient extends EventEmitter {
     try {
       const response = await this.post('/api/chat', {
         ...this.target(),
-        ...this.skillSelection(),
+        ...selection,
         message: text,
         request_id: id,
         message_id: id,

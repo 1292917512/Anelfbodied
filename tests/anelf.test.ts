@@ -5,6 +5,8 @@ import { Controller } from '../src/runtime/controller';
 import type { ActionDriver } from '../src/runtime/ports';
 import { Journal } from '../src/runtime/journal';
 import { PROTOCOL } from '../src/protocol/schema';
+import { channelGuide } from '../src/integrations/anelf/guide';
+import { mcpConfiguration } from '../src/shared/mcp-configuration';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -105,6 +107,36 @@ async function fixture(driver: ActionDriver) {
 }
 
 describe('Anelf HTTP channel adapter', () => {
+  it('sends setup only on request with the actual MCP configuration and no premature skill tag', async () => {
+    const f = await fixture({ execute: async () => ({ outcome: 'completed' }) });
+    const local = { url: 'http://127.0.0.1:57321', token: 'desktop-control-secret' };
+    await f.client.connect({ ...f.config, skillName: 'anelfbodied-control' });
+    await expect.poll(() => f.client.snapshot().status).toBe('online');
+    expect(f.requests).toHaveLength(0);
+    await f.client.sendGuide(local);
+    expect(f.requests[0]?.data).not.toHaveProperty('skills');
+    expect(f.requests[0]?.data.message).toBe(channelGuide('anelfbodied-control', local));
+    expect(String(f.requests[0]?.data.message)).toContain(
+      JSON.stringify(mcpConfiguration(local), null, 2),
+    );
+    expect(String(f.requests[0]?.data.message)).toContain('set_skill_mcp_servers');
+    expect(String(f.requests[0]?.data.message)).not.toContain('fixture-token');
+    await expect(f.client.sendGuide(local)).rejects.toThrow('请等待');
+    f.frame({ type: 'turn_end' });
+    await expect.poll(() => f.client.snapshot().busy).toBe(false);
+    f.reconnect();
+    await expect.poll(() => f.state.subscriptions).toBe(2);
+    await expect.poll(() => f.client.snapshot().status).toBe('online');
+    expect(f.requests).toHaveLength(1);
+    await f.client.send('你好');
+    expect(f.requests.at(-1)?.data).toMatchObject({
+      message: '你好',
+      skills: ['anelfbodied-control'],
+    });
+    expect(channelGuide('custom-skill', local)).toContain('自定义技能名称');
+    expect(channelGuide('custom-skill', local)).not.toContain('raw.githubusercontent.com');
+  });
+
   it.each([
     [404, 'application/json', '未找到频道接口'],
     [200, 'text/html', '未返回频道事件流'],

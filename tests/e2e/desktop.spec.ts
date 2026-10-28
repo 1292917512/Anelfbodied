@@ -555,7 +555,7 @@ test('channel settings distinguish failure, handshake, synchronization and recov
   }
 });
 
-test('channel speech preserves JSON text in streaming, bubbles and history', async () => {
+test('channel preserves speech and sends setup with the live MCP configuration only on demand', async () => {
   let stream: ServerResponse | undefined;
   const received: Record<string, unknown>[] = [];
   const server = createServer(async (req, res) => {
@@ -584,6 +584,7 @@ test('channel speech preserves JSON text in streaming, bubbles and history', asy
     await panel.getByLabel('技能名称', { exact: true }).fill('anelfbodied-control');
     await panel.getByRole('button', { name: '保存并连接' }).click();
     await expect(panel.locator('.connection')).toHaveText('已连接');
+    expect(received).toHaveLength(0);
     await panel.getByRole('button', { name: '收起浮层' }).click();
     await pet.locator('.pet-body').dblclick({ force: true });
     await pet.getByRole('textbox', { name: '发送消息' }).fill('解释这段 JSON');
@@ -607,6 +608,22 @@ test('channel speech preserves JSON text in streaming, bubbles and history', asy
     await panel.getByRole('button', { name: '对话记录', exact: true }).click();
     await expect(panel.locator('.history-view')).toContainText(speech);
     expect(received).toHaveLength(1);
+    await panel.getByRole('button', { name: '连接设置', exact: true }).click();
+    const setup = panel.getByRole('button', { name: '发送接入说明', exact: true });
+    await expect(setup).toBeEnabled();
+    await panel.getByText('查看将发送的说明与 MCP 配置', { exact: true }).click();
+    await expect(panel.locator('.guide-preview')).toContainText(`${connection.url}/mcp`);
+    await expect(panel.locator('.guide-preview')).toContainText(`Bearer ${connection.token}`);
+    await panel.getByText('查看将发送的说明与 MCP 配置', { exact: true }).click();
+    await setup.click();
+    await expect.poll(() => received.length).toBe(2);
+    expect(received[1]).not.toHaveProperty('skills');
+    expect(String(received[1]?.message)).toContain(`"url": "${connection.url}/mcp"`);
+    expect(String(received[1]?.message)).toContain(`"Authorization": "Bearer ${connection.token}"`);
+    expect(String(received[1]?.message)).toContain('set_skill_mcp_servers');
+    await expect(setup).toBeDisabled();
+    await expect(panel.getByText('说明已发送，安装与绑定结果以 Agent 回复为准。')).toBeVisible();
+    await panel.screenshot({ path: 'test-results/channel-guide.png' });
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));

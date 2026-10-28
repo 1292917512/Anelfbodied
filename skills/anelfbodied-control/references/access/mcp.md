@@ -4,7 +4,7 @@
 
 先启动 AnelfBodied。在“连接设置 → MCP / 消息协议 → 复制 MCP 配置”取得本机地址与认证头，将配置加入 Agent 的 MCP 客户端。地址通常是 `http://127.0.0.1:46187/mcp`，但应使用实际配置中的端口。
 
-服务采用 Streamable HTTP，仅监听本机回环地址，需要 `Authorization: Bearer <控制 Token>`。此 Token 与 Anelf 频道的 API Token 不同；不要把凭据写入 Skill、对话正文、命令日志或版本库。缺少地址或凭据时获取正确配置，不猜测，也不读取其他应用的凭据。
+服务采用 Streamable HTTP，仅监听本机回环地址，需要 `Authorization: Bearer <控制 Token>`。此 Token 与 Anelf 频道的 API Token 不同；用户可通过手动接入说明提供它，只将其用于 MCP 配置，不在回复中复述，也不写入 Skill、命令日志或版本库。缺少地址或凭据时获取正确配置，不猜测，也不读取其他应用的凭据。
 
 远端 Agent 的 `127.0.0.1` 指向远端机器，不能直接访问用户电脑。当前文档只说明本机接入；跨主机转发需要独立的部署方案，Skill 不会自动开放网络监听。
 

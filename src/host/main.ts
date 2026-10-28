@@ -35,6 +35,7 @@ import { installUpdate } from './install-update';
 import { productName } from '../shared/product';
 import { ConnectionService } from '../application/connection';
 import { applicationIcon } from '../skins/builtin';
+import { mcpConfiguration } from '../shared/mcp-configuration';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 protocol.registerSchemesAsPrivileged([
@@ -210,22 +211,14 @@ async function start(): Promise<void> {
   handle('app:disconnect', () => connection.control('disconnect'));
   handle('app:copy-mcp', () =>
     clipboard.writeText(
-      JSON.stringify(
-        {
-          mcpServers: {
-            [productName]: {
-              type: 'http',
-              url: `${local.url}/mcp`,
-              headers: { Authorization: `Bearer ${apiToken}` },
-            },
-          },
-        },
-        null,
-        2,
-      ),
+      JSON.stringify(mcpConfiguration({ url: local.url, token: apiToken }), null, 2),
     ),
   );
   handle('app:send', (input) => anelf.send(z.string().max(16000).parse(input)), true);
+  handle('app:send-guide', () => {
+    if (connection.updating) throw new Error('请等待连接配置完成');
+    return anelf.sendGuide({ url: local.url, token: apiToken });
+  });
   handle('app:stop', stop, true);
   handle('pet:snapshot', () => companion(snapshot()), true);
   handle('app:appearance', (input) => {

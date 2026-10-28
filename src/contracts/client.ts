@@ -33,6 +33,7 @@ export interface DesktopBridge {
   disconnect(): Promise<ConnectionOverview>;
   copyMcpConfiguration(): Promise<void>;
   send(text: string): Promise<void>;
+  sendGuide(): Promise<void>;
   stop(): Promise<void>;
   showPanel(view?: PanelView): void;
   hidePanel(): void;
