@@ -6,7 +6,8 @@
   "type": "module",
   "description": "An independent desktop companion with a shared message and MCP control runtime",
   "license": "MIT",
-  "author": "AnelfBodied contributors",
+  "author": "anelf.cn",
+  "homepage": "https://anelf.cn",
   "repository": {
     "type": "git",
     "url": "https://github.com/1292917512/Anelfbodied.git"
