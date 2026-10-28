@@ -1,6 +1,7 @@
 import { BrowserWindow, Menu, screen, dialog } from 'electron';
 import { petAnchor, panelAnchor, type Point } from '../shared/geometry';
 import type { PanelView } from '../contracts/client';
+import { productName } from '../shared/product';
 
 /** Owns the floating windows, placement and bounded renderer recovery. */
 export function createDesktop(
@@ -38,7 +39,7 @@ export function createDesktop(
     transparent: true,
     skipTaskbar: true,
     show: false,
-    title: 'Embodied · 桌面伙伴',
+    title: `${productName} · 桌面伙伴`,
     webPreferences,
   });
   panel.setAlwaysOnTop(true, 'floating');
@@ -84,7 +85,7 @@ export function createDesktop(
       if (failures.length > 3) {
         if (!process.env.EMBODIED_TEST)
           dialog.showErrorBox(
-            'Embodied 显示异常',
+            `${productName} 显示异常`,
             '显示进程反复退出，请重新启动并检查 runtime.log。',
           );
         return;

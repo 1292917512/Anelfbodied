@@ -379,7 +379,7 @@ test('packaged update interface shows download progress and a verified install a
       const original = globalThis.fetch;
       globalThis.fetch = async (input, init) => {
         const url = String(input);
-        if (url.endsWith('/repos/1292917512/DeskTop_Embodied/releases/latest'))
+        if (url.endsWith('/repos/1292917512/Anelfbodied/releases/latest'))
           return new Response(
             JSON.stringify({
               tag_name: 'v9.0.0',
@@ -387,16 +387,16 @@ test('packaged update interface shows download progress and a verified install a
               prerelease: false,
               assets: [
                 {
-                  name: 'Embodied-Setup-9.0.0-x64.exe',
+                  name: 'AnelfBodied-Setup-9.0.0-x64.exe',
                   browser_download_url:
-                    'https://github.com/1292917512/DeskTop_Embodied/releases/download/v9.0.0/Embodied-Setup-9.0.0-x64.exe',
+                    'https://github.com/1292917512/Anelfbodied/releases/download/v9.0.0/AnelfBodied-Setup-9.0.0-x64.exe',
                   size: fixture.payload.length,
                   digest: `sha256:${fixture.digest}`,
                 },
               ],
             }),
           );
-        if (url.endsWith('Embodied-Setup-9.0.0-x64.exe'))
+        if (url.endsWith('AnelfBodied-Setup-9.0.0-x64.exe'))
           return new Response(
             new ReadableStream({
               start(controller) {

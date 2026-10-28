@@ -1,13 +1,13 @@
 # 安装、升级与卸载
 
-Windows x64 安装包为 `Embodied-Setup-<版本>-x64.exe`。安装向导提供许可说明、安装目录选择和进度，安装完成可启动桌宠，并建立桌面、开始菜单快捷方式以及 Windows 应用卸载入口。
+Windows x64 安装包为 `AnelfBodied-Setup-<版本>-x64.exe`。安装向导提供许可说明、安装目录选择和进度，安装完成可启动桌宠，并建立桌面、开始菜单快捷方式以及 Windows 应用卸载入口。
 
 ## 目录
 
 ```text
-Embodied/
-  Embodied.exe
-  Uninstall Embodied.exe
+AnelfBodied/
+  AnelfBodied.exe
+  Uninstall AnelfBodied.exe
   resources/                 程序与内置资源
   locales/                   桌面运行时语言资源
   docs/                      协议、安装和二次开发说明
@@ -38,11 +38,11 @@ Electron 还可能在 `data/` 中保存自己的本地状态文件。安装器�
 
 也可关闭桌宠后直接运行新安装包。两种方式都使用原安装目录，保留 `data/` 中的凭据、皮肤和回执。安装目录不会混入构建或测试时的数据。
 
-发布新版本需在项目 GitHub Release 中上传 `Embodied-Setup-<版本>-x64.exe`，版本号与程序一致。更新器使用 [GitHub 提供的资源 SHA-256](https://docs.github.com/en/rest/releases/assets) 校验，缺少校验或地址不匹配时拒绝下载。没有新发布版本时明确显示当前状态，不修改任何配置。
+发布新版本需在项目 GitHub Release 中上传 `AnelfBodied-Setup-<版本>-x64.exe`，版本号与程序一致。更新器使用 [GitHub 提供的资源 SHA-256](https://docs.github.com/en/rest/releases/assets) 校验，缺少校验或地址不匹配时拒绝下载。没有新发布版本时明确显示当前状态，不修改任何配置。
 
 ## 完整卸载
 
-在 Windows 设置的应用列表中卸载 Embodied，或运行安装目录里的卸载程序。
+在 Windows 设置的应用列表中卸载 AnelfBodied，或运行安装目录里的卸载程序。
 
 - 删除本程序安装的文件、配置、缓存、日志、回执和自定义皮肤。
 - 删除快捷方式以及安装器创建的卸载注册信息。

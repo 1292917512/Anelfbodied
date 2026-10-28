@@ -1,12 +1,16 @@
 {
-  "name": "desktop-embodied",
-  "productName": "Embodied",
+  "name": "anelfbodied",
+  "productName": "AnelfBodied",
   "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "An independent desktop companion with a shared message and MCP control runtime",
   "license": "MIT",
-  "author": "DeskTop Embodied contributors",
+  "author": "AnelfBodied contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/1292917512/Anelfbodied.git"
+  },
   "main": "dist/host/main.js",
   "packageManager": "pnpm@11.25.0",
   "engines": {
@@ -52,7 +56,6 @@
   },
   "build": {
     "appId": "cn.anelf.embodied",
-    "productName": "Embodied",
     "directories": {
       "output": "release"
     },
@@ -92,9 +95,9 @@
       ],
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Embodied",
-      "uninstallDisplayName": "Embodied",
-      "artifactName": "Embodied-Setup-${version}-${arch}.${ext}",
+      "shortcutName": "${productName}",
+      "uninstallDisplayName": "${productName}",
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
       "deleteAppDataOnUninstall": false
     },
     "mac": {

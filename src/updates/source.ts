@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { productName } from '../shared/product';
 
-export const repository = '1292917512/DeskTop_Embodied';
+export const repository = '1292917512/Anelfbodied';
 const version = z.string().regex(/^\d+\.\d+\.\d+$/);
 export const releaseSchema = z
   .object({
@@ -34,7 +35,7 @@ export class GitHubReleases implements ReleaseSource {
   async latest(signal: AbortSignal): Promise<Release | undefined> {
     const response = await fetch(`https://api.github.com/repos/${repository}/releases/latest`, {
       signal,
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Embodied' },
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': productName },
     });
     if (response.status === 404) return undefined;
     if (!response.ok) throw new Error(`检查更新失败（HTTP ${response.status}）`);
@@ -55,7 +56,7 @@ export class GitHubReleases implements ReleaseSource {
       .parse(await response.json());
     if (json.draft || json.prerelease) return undefined;
     const nextVersion = version.parse(json.tag_name.replace(/^v/, ''));
-    const name = `Embodied-Setup-${nextVersion}-x64.exe`;
+    const name = `${productName}-Setup-${nextVersion}-x64.exe`;
     const asset = json.assets.find((asset) => asset.name === name);
     if (!asset || !asset.digest?.startsWith('sha256:'))
       throw new Error('发布版本缺少可验证的 Windows 安装包');

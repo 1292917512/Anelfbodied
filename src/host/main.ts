@@ -31,12 +31,13 @@ import { prepareStorage } from './storage';
 import { Updater } from '../updates/updater';
 import { GitHubReleases } from '../updates/source';
 import { installUpdate } from './install-update';
+import { productName } from '../shared/product';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 protocol.registerSchemesAsPrivileged([
   { scheme: 'embodied-skin', privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
-app.setName('Embodied');
+app.setName(productName);
 const installation = app.isPackaged ? dirname(app.getPath('exe')) : app.getAppPath();
 const storage = (() => {
   try {
@@ -48,7 +49,7 @@ const storage = (() => {
     return paths;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (!process.env.EMBODIED_TEST) dialog.showErrorBox('Embodied 无法启动', message);
+    if (!process.env.EMBODIED_TEST) dialog.showErrorBox(`${productName} 无法启动`, message);
     console.error(message);
     process.exit(1);
   }
@@ -68,12 +69,12 @@ if (!app.requestSingleInstanceLock()) {
     .catch((error) => {
       log('startup-failed', error instanceof Error ? error.message : 'Unknown error');
       console.error(
-        'Embodied startup failed:',
+        `${productName} startup failed:`,
         error instanceof Error ? error.message : 'Unknown error',
       );
       if (!process.env.EMBODIED_TEST)
         dialog.showErrorBox(
-          'Embodied 无法启动',
+          `${productName} 无法启动`,
           error instanceof Error ? error.message : '未知错误',
         );
       app.exit(1);
@@ -306,7 +307,7 @@ async function start(): Promise<void> {
       .createFromPath(join(directory, '../renderer/skins/fox/fox.png'))
       .resize({ width: 24, height: 24 }),
   );
-  tray.setToolTip('Embodied · 桌面伙伴');
+  tray.setToolTip(`${productName} · 桌面伙伴`);
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: '打开控制浮层', click: () => desktop.showPanel() },

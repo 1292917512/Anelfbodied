@@ -9,7 +9,7 @@ import { GitHubReleases, newer, type ReleaseSource } from '../src/updates/source
 const bytes = Buffer.from('verified installer contents');
 const release = {
   version: '0.2.0',
-  url: 'https://github.com/1292917512/DeskTop_Embodied/releases/download/v0.2.0/Embodied-Setup-0.2.0-x64.exe',
+  url: 'https://github.com/1292917512/Anelfbodied/releases/download/v0.2.0/AnelfBodied-Setup-0.2.0-x64.exe',
   size: bytes.length,
   sha256: createHash('sha256').update(bytes).digest('hex'),
 };
@@ -89,7 +89,7 @@ describe('application upgrades', () => {
           prerelease: false,
           assets: [
             {
-              name: 'Embodied-Setup-0.2.0-x64.exe',
+              name: 'AnelfBodied-Setup-0.2.0-x64.exe',
               browser_download_url: release.url,
               size: release.size,
               digest: `sha256:${release.sha256}`,

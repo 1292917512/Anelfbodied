@@ -1,4 +1,5 @@
 import type { UpdateState } from '../../contracts/update';
+import { productName } from '../../shared/product';
 
 export function UpdatePanel({
   state,
@@ -26,7 +27,7 @@ export function UpdatePanel({
     <section className="update-card" aria-label="应用更新">
       <div className="update-row">
         <div>
-          <strong>Embodied</strong>
+          <strong>{productName}</strong>
           <span>
             v{state.currentVersion}
             {state.nextVersion ? ` → ${state.nextVersion}` : ''}

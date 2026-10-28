@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { capabilities, cancelSchema, commandSchema } from '../protocol/schema';
 import type { Controller } from '../runtime/controller';
+import { productName, version } from '../shared/product';
 
 const result = (value: object) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value) }],
@@ -10,7 +11,7 @@ const result = (value: object) => ({
 
 /** MCP tools delegate to the same controller as protocol messages. */
 export function createMcp(controller: Controller, owner = 'external'): McpServer {
-  const server = new McpServer({ name: 'desktop-embodied', version: '0.1.0' });
+  const server = new McpServer({ name: 'desktop-embodied', title: productName, version });
   server.registerTool(
     'pet_capabilities',
     { description: 'Discover supported desktop pet actions and their JSON schemas.' },

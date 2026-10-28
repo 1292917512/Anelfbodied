@@ -6,6 +6,7 @@ import { Receipts } from './Receipts';
 import { Icon } from '../components/Icon';
 import { AppearancePanel } from './AppearancePanel';
 import { SkinSprite } from '../components/SkinSprite';
+import { productName } from '../../shared/product';
 
 function messageText(text: string): string {
   try {
@@ -76,7 +77,7 @@ export function App() {
             />
           </span>
           <div>
-            <strong>embodied</strong>
+            <strong>{productName}</strong>
             <span className={`connection ${snapshot.connection.status}`}>
               <i />
               {labels[snapshot.connection.status]}

@@ -1,4 +1,4 @@
-# Embodied
+# AnelfBodied
 
 独立的桌面伙伴客户端。AI 和记忆留在服务端，桌宠负责表达、移动、提问与执行回执。HTTP 消息协议、MCP 和 Anelf 频道接入共用一个执行控制器。
 
@@ -25,7 +25,7 @@ pnpm run pack
 pnpm run dist
 ```
 
-`pnpm run pack` 生成 Windows 目录包 `release/win-unpacked/Embodied.exe`；`pnpm run dist` 生成 `release/Embodied-Setup-<版本>-x64.exe` 安装程序。支持选择目录、桌面与开始菜单快捷方式，以及 Windows 应用列表中的完整卸载。注意使用 `pnpm run pack`，`pnpm pack` 是包管理器的源码归档命令。macOS、Linux 有构建配置，但尚未做真机验证；当前发行目标是 Windows。
+`pnpm run pack` 生成 Windows 目录包 `release/win-unpacked/AnelfBodied.exe`；`pnpm run dist` 生成 `release/AnelfBodied-Setup-<版本>-x64.exe` 安装程序。支持选择目录、桌面与开始菜单快捷方式，以及 Windows 应用列表中的完整卸载。注意使用 `pnpm run pack`，`pnpm pack` 是包管理器的源码归档命令。macOS、Linux 有构建配置，但尚未做真机验证；当前发行目标是 Windows。
 
 程序、文档、示例和数据统一放在安装目录。运行数据保存在 `data/`，日志位于 `data/logs/`，自定义皮肤位于 `data/skins/`。安装目录必须对当前用户可写，程序不会静默退回其他目录保存数据。Anelf Token 使用系统加密；系统加密不可用时只在内存保存。日志保留两份约 256 KB 的文件，磁盘缓存限额为 64 MB。桌宠不读写 Anelf 的本地数据目录。
 
@@ -50,7 +50,7 @@ SSE 中断后自动退避重连；无法确认的发送不自动重发。本轮�
 ```json
 {
   "mcpServers": {
-    "embodied": {
+    "AnelfBodied": {
       "command": "node",
       "args": ["E:/ELFProgram/DeskTop_Embodied/dist/host/stdio.js"],
       "env": {

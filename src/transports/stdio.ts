@@ -3,6 +3,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { productName, version } from '../shared/product';
 
 /** A stdio gateway attaches to the running desktop instance without starting a second pet. */
 const url = process.env.EMBODIED_URL;
@@ -12,14 +13,14 @@ if (!url || !token)
 const parsed = new URL(url);
 if (!['127.0.0.1', 'localhost'].includes(parsed.hostname))
   throw new Error('The stdio gateway only connects to the local client');
-const client = new Client({ name: 'embodied-stdio-gateway', version: '0.1.0' });
+const client = new Client({ name: 'embodied-stdio-gateway', title: productName, version });
 await client.connect(
   new StreamableHTTPClientTransport(new URL('/mcp', parsed), {
     requestInit: { headers: { Authorization: `Bearer ${token}` } },
   }),
 );
 const server = new Server(
-  { name: 'desktop-embodied', version: '0.1.0' },
+  { name: 'desktop-embodied', title: productName, version },
   { capabilities: { tools: {} } },
 );
 server.setRequestHandler(ListToolsRequestSchema, () => client.listTools());

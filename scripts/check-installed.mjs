@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { _electron as electron } from '@playwright/test';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -12,6 +12,10 @@ delete env.ELECTRON_RUN_AS_NODE;
 delete env.EMBODIED_DATA_DIR;
 const application = await electron.launch({ executablePath, env });
 try {
+  assert.equal(
+    await application.evaluate(({ app }) => app.getName()),
+    basename(executablePath, '.exe'),
+  );
   const paths = await application.evaluate(async ({ app }) => {
     await app.whenReady();
     return Object.fromEntries(
