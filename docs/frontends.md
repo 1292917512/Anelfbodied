@@ -63,7 +63,7 @@ Anelf HTTP/SSE、配置、技能和连接工具集中在 integrations/anelf/，�
 
 src/model/ 只定义模型契约、注册表和生命周期，不引用 PNG、Live2D、Electron 或 React。src/components/png/ 与 src/components/live2d/ 分别包含自己的配置、资源加载和渲染；互不引用。src/composition/ 是产品装配入口，注入主进程的 SkinLoader、前端的 ModelRenderer 以及组件构建资源。新增模型类型时不修改协议、控制器、MCP 或公共注册表。
 
-SkinLoader 只处理数据包并返回规范化模型、动作和行为绑定。ModelRenderer.mount 加载并返回 ModelInstance；play 完成资源准备并开始展示，stop 必须同步停止效果，dispose 必须释放资源。方法抛错、加载超时、显卡上下文丢失均进入 error 状态，不发布 ready。宿主只在资源和待机动作都可用后报告就绪。
+SkinLoader 只处理数据包并返回规范化模型、动作和行为绑定。ModelRenderer.mount 加载并返回 ModelInstance；play 完成资源准备并开始替换播放，允许组件衔接上一段姿态，返回时表示已经开始播放。正常行为切换不先调用 stop；显式取消、关闭行为和释放仍要求同步停止效果。dispose 必须释放资源。Live2D 使用原生动作队列淡入淡出，PNG 替换自己的序列帧计时器。方法抛错、加载超时、显卡上下文丢失均进入 error 状态，不发布 ready。宿主只在资源和待机动作都可用后报告就绪。
 
 ModelInstance.hitMask 返回当前画面的不透明区域，坐标覆盖整个模型容器（包含留白），未就绪或已释放时返回 undefined。掩码最大为 256 × 256，按行排列，每个采样点占一位（低位在前）。PNG 按当前帧及宽高比生成掩码；Live2D 在绘制后读取透明度，最多每 80 ms 更新一次，未使用命中接口的预览停止采样。共用的 alphaSampler 排除透明度低于 32/255 的像素，不包含 CSS 阴影。
 

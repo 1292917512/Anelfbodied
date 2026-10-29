@@ -4,6 +4,7 @@ import {
   panelAnchor,
   petDisplaySize,
   fullModelBounds,
+  visibleModelBounds,
   type PetPlacement,
 } from '../shared/geometry';
 import type { PanelView } from '../contracts/client';
@@ -66,15 +67,16 @@ export function createDesktop(
         Math.min(current.height, area.height - 24),
       );
     const anchor = petAnchor(area, position, scale, position.bounds);
-    const location = panelAnchor(
-      area,
-      panel.getBounds(),
-      {
-        x: area.x + anchor.x,
-        y: area.y + anchor.y,
-      },
+    const visible = visibleModelBounds(
+      anchor,
       petDisplaySize(area, scale).diameter,
+      position.bounds,
     );
+    const location = panelAnchor(area, panel.getBounds(), {
+      ...visible,
+      x: area.x + visible.x,
+      y: area.y + visible.y,
+    });
     panel.setPosition(location.x, location.y);
     panel.show();
     panel.focus();

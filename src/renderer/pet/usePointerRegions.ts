@@ -1,6 +1,11 @@
 import { useLayoutEffect, useRef } from 'react';
 import type { HitMask } from '../../model/hit-mask';
-import { regionContains, regionBounds, type HitRegion } from '../../shared/hit-region';
+import {
+  regionContains,
+  regionBounds,
+  sameHitRegions,
+  type HitRegion,
+} from '../../shared/hit-region';
 import { fullModelBounds, type Bounds } from '../../shared/geometry';
 
 function rectangles(root: HTMLElement, selector: string): HitRegion[] {
@@ -39,12 +44,17 @@ export function usePointerRegions(hitMask: () => HitMask | undefined) {
     if (!root) return;
     let frame = 0,
       measuredAt = -Infinity;
+    let previous: HitRegion[] | undefined;
     const measure = (now: number) => {
       if (now - measuredAt >= 40) {
-        window.embodied.hitRegions([
+        const regions = [
           ...modelRegions(root, current.current()),
           ...rectangles(root, '.pet-bubble, .pet-wheel'),
-        ]);
+        ];
+        if (!previous || !sameHitRegions(previous, regions)) {
+          window.embodied.hitRegions(regions);
+          previous = regions;
+        }
         measuredAt = now;
       }
       frame = requestAnimationFrame(measure);

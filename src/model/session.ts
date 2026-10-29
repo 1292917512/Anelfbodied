@@ -46,16 +46,18 @@ export class ModelSession {
     const name =
       bound === '' && behavior !== 'idle' ? this.bindings.idle : (bound ?? this.bindings.idle);
     if (
-      !restart &&
+      !(restart && bound) &&
       this.ambientName === name &&
       this.ambientAbort &&
       !this.ambientAbort.signal.aborted
     )
       return;
     this.ambientAbort?.abort();
-    this.instance.stop();
     this.ambientName = name;
-    if (!name) return;
+    if (!name) {
+      this.instance.stop();
+      return;
+    }
     const abort = (this.ambientAbort = new AbortController());
     try {
       await this.instance.play(name, abort.signal);
@@ -94,7 +96,6 @@ export class ModelSession {
     this.ambientAbort?.abort();
     try {
       combined.throwIfAborted();
-      this.instance.stop();
       await this.instance.play(action.name, combined);
       await waitFor(action.durationMs, combined);
       return { outcome: 'completed' };
@@ -108,7 +109,7 @@ export class ModelSession {
               detail: (error instanceof Error ? error.message : String(error)).slice(0, 500),
             };
     } finally {
-      this.instance?.stop();
+      if (combined.aborted || this.error) this.instance?.stop();
       this.command = undefined;
       void this.ambient(this.behavior).catch(() => {});
     }

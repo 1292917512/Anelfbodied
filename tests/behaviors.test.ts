@@ -26,6 +26,35 @@ const skin: Skin = {
 };
 
 describe('behavior extension and preferences', () => {
+  it('keeps fallback idle running and delegates normal action blending to the component', async () => {
+    const instance = {
+      hitMask: () => undefined,
+      play: vi.fn<ModelInstance['play']>(async () => {}),
+      stop: vi.fn(),
+      dispose: vi.fn(),
+    };
+    const session = new ModelSession(skin, 'stable', vi.fn());
+    try {
+      await session.attach(instance);
+      await session.ambient('drag');
+      await session.ambient('drop', true);
+      await session.ambient('idle');
+      expect(instance.play).toHaveBeenCalledTimes(1);
+      session.updateBindings({ idle: 'rest', drag: 'wave', drop: 'wave' });
+      await session.ambient('drag');
+      await session.ambient('drop', true);
+      await session.ambient('idle');
+      expect(instance.play.mock.calls.map(([name]) => name)).toEqual([
+        'rest',
+        'wave',
+        'wave',
+        'rest',
+      ]);
+      expect(instance.stop).not.toHaveBeenCalled();
+    } finally {
+      session.dispose();
+    }
+  });
   it('resolves drag before touch and lets an injected preset join without core changes', () => {
     expect(behaviors.resolve({ signals: new Set(['drag', 'touch', 'talk']) })?.id).toBe('drag');
     const extension = new BehaviorRegistry([

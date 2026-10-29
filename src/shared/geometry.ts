@@ -14,6 +14,16 @@ export interface PetPlacement extends Point {
   bounds: Bounds;
 }
 
+/** Converts normalized opacity bounds to viewport coordinates. */
+export function visibleModelBounds(anchor: Point, diameter: number, bounds: Bounds): Bounds {
+  return {
+    x: anchor.x + bounds.x * diameter,
+    y: anchor.y + bounds.y * diameter,
+    width: bounds.width * diameter,
+    height: bounds.height * diameter,
+  };
+}
+
 /** Fits the model to the work area without reserving space for transient controls. */
 export function petDisplaySize(size: Size, scale = 1) {
   const requested = petSize.base * scale;
@@ -51,7 +61,7 @@ export function normalizePet(
 }
 
 /** Places feedback above, below or beside the model while keeping controls on screen. */
-export function bubblePlacement(viewport: Size, body: Point & Size) {
+export function bubblePlacement(viewport: Size, body: Bounds, container: Bounds = body) {
   const gap = 12;
   const width = Math.max(1, Math.min(270, viewport.width - gap * 2));
   const left = Math.max(
@@ -64,13 +74,13 @@ export function bubblePlacement(viewport: Size, body: Point & Size) {
   const below = viewport.height - lowerEdge - gap;
   if (above >= 160 && above >= below)
     return {
-      left: left - body.x,
+      left: left - container.x,
       width,
-      bottom: body.y + body.height - upperEdge,
+      bottom: container.y + container.height - upperEdge,
       maxHeight: above,
     };
   if (below >= 160)
-    return { left: left - body.x, width, top: lowerEdge - body.y, maxHeight: below };
+    return { left: left - container.x, width, top: lowerEdge - container.y, maxHeight: below };
   const side =
     body.x + body.width + gap + width <= viewport.width - gap
       ? body.x + body.width + gap
@@ -79,19 +89,14 @@ export function bubblePlacement(viewport: Size, body: Point & Size) {
         : left;
   const top = Math.max(gap, Math.min(viewport.height - 172, body.y));
   return {
-    left: side - body.x,
+    left: side - container.x,
     width,
-    top: top - body.y,
+    top: top - container.y,
     maxHeight: Math.max(1, viewport.height - top - gap),
   };
 }
 
-export function panelAnchor(
-  area: Point & Size,
-  panel: Size,
-  pet: Point,
-  diameter: number = petSize.base,
-): Point {
+export function panelAnchor(area: Point & Size, panel: Size, pet: Bounds): Point {
   const left = pet.x - panel.width - 18;
   return {
     x: Math.round(
@@ -99,14 +104,14 @@ export function panelAnchor(
         area.x + 12,
         Math.min(
           area.x + area.width - panel.width - 12,
-          left >= area.x + 12 ? left : pet.x + diameter + 18,
+          left >= area.x + 12 ? left : pet.x + pet.width + 18,
         ),
       ),
     ),
     y: Math.round(
       Math.max(
         area.y + 12,
-        Math.min(area.y + area.height - panel.height - 12, pet.y + diameter - panel.height),
+        Math.min(area.y + area.height - panel.height - 12, pet.y + pet.height - panel.height),
       ),
     ),
   };

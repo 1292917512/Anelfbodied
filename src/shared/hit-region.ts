@@ -9,6 +9,33 @@ export type HitRegion =
   | { kind: 'rect'; x: number; y: number; width: number; height: number }
   | { kind: 'model'; origin: Point; horizontal: Point; vertical: Point; mask: HitMask };
 
+/** Compares geometry and opacity samples before publishing pointer regions. */
+export function sameHitRegions(previous: HitRegion[], next: HitRegion[]): boolean {
+  if (previous.length !== next.length) return false;
+  return previous.every((region, index) => {
+    const other = next[index]!;
+    if (region.kind === 'rect' && other.kind === 'rect')
+      return (
+        region.x === other.x &&
+        region.y === other.y &&
+        region.width === other.width &&
+        region.height === other.height
+      );
+    if (region.kind !== 'model' || other.kind !== 'model') return false;
+    for (const point of ['origin', 'horizontal', 'vertical'] as const)
+      if (region[point].x !== other[point].x || region[point].y !== other[point].y) return false;
+    const a = region.mask,
+      b = other.mask;
+    return (
+      a === b ||
+      (a.width === b.width &&
+        a.height === b.height &&
+        a.bits.length === b.bits.length &&
+        a.bits.every((value, i) => value === b.bits[i]))
+    );
+  });
+}
+
 const spans = new WeakMap<HitMask, Bounds[]>();
 
 /** Measures opaque rows after applying the surface transform, excluding transparent padding. */

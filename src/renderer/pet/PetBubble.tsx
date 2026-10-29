@@ -10,6 +10,7 @@ export function PetBubble({
   open,
   close,
   answer,
+  connect,
   placement,
 }: {
   state: PetState;
@@ -17,6 +18,7 @@ export function PetBubble({
   open: boolean;
   close(): void;
   answer(text: string): void;
+  connect(): void;
   placement: CSSProperties;
 }) {
   const [draft, setDraft] = useState('');
@@ -121,10 +123,7 @@ export function PetBubble({
         open && (
           <>
             {companion.status !== 'online' && (
-              <button
-                className="bubble-connect"
-                onClick={() => window.embodied.showPanel('settings')}
-              >
+              <button className="bubble-connect" onClick={connect}>
                 连接你的 AI ↗
               </button>
             )}

@@ -6,6 +6,8 @@ import {
   normalizePet,
   petAnchor,
   petDisplaySize,
+  visibleModelBounds,
+  type Bounds,
 } from '../../shared/geometry';
 import type { CompanionState, PanelView } from '../../contracts/client';
 import { usePetGestures } from './usePetGestures';
@@ -39,6 +41,7 @@ export function Pet() {
   });
   const [typing, setTyping] = useState(false);
   const [wheel, setWheel] = useState(false);
+  const [controlBounds, setControlBounds] = useState<Bounds>(fullModelBounds);
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState('');
   const [size, setSize] = useState({ width: innerWidth, height: innerHeight });
@@ -66,11 +69,19 @@ export function Pet() {
     setWheel(false);
     window.embodied.focusPet(false);
   };
+  const measureControls = () => {
+    const bounds = pointer.bounds();
+    setControlBounds(bounds);
+    return bounds;
+  };
   const talk = () => {
     setWheel(false);
     setNotice('');
     if (typing) close();
-    else setTyping(true);
+    else {
+      measureControls();
+      setTyping(true);
+    }
   };
   const touch = () => {
     behavior.trigger('touch');
@@ -78,6 +89,7 @@ export function Pet() {
   const toggleWheel = () => {
     if (wheel) close();
     else {
+      measureControls();
       setTyping(false);
       setWheel(true);
     }
@@ -94,11 +106,15 @@ export function Pet() {
     dragging: (active, cancelled) => {
       setDragging(active);
       if (active) {
+        behavior.clear();
         setTyping(false);
         setWheel(false);
       } else if (!cancelled) behavior.trigger('drop');
     },
-    move: (placement) => engine.current?.move(placement),
+    move: (placement) => {
+      setControlBounds(placement.bounds);
+      engine.current?.move(placement);
+    },
   });
   useEffect(() => {
     const runtime = new PetEngine(
@@ -121,10 +137,14 @@ export function Pet() {
     window.addEventListener('keydown', escape);
     window.addEventListener('blur', blur);
     const off = window.embodied.onOrder((order) => {
-      if (order.type === 'execute' && order.action.action === 'move') {
-        const { size, scale } = placementContext.current;
-        const anchor = petAnchor(size, runtime.state, scale, runtime.state.bounds);
-        runtime.place(normalizePet(size, anchor, scale, pointer.bounds()));
+      if (order.type === 'execute') {
+        const bounds = pointer.bounds();
+        setControlBounds(bounds);
+        if (order.action.action === 'move') {
+          const { size, scale } = placementContext.current;
+          const anchor = petAnchor(size, runtime.state, scale, runtime.state.bounds);
+          runtime.place(normalizePet(size, anchor, scale, bounds));
+        }
       }
       runtime.dispatch(order);
     });
@@ -142,9 +162,13 @@ export function Pet() {
     };
   }, []);
   useEffect(() => {
+    setControlBounds(fullModelBounds);
     const runtime = engine.current;
     if (runtime) runtime.place({ x: runtime.state.x, y: runtime.state.y, bounds: fullModelBounds });
   }, [companion.appearance?.revision]);
+  useEffect(() => {
+    if (companion.busy) setControlBounds(pointer.bounds());
+  }, [companion.busy]);
   useEffect(() => {
     const timer = setTimeout(
       () => window.embodied.position({ x: state.x, y: state.y, bounds: state.bounds }),
@@ -153,9 +177,13 @@ export function Pet() {
     return () => clearTimeout(timer);
   }, [state.x, state.y, state.bounds]);
   const { x, y } = petAnchor(size, state, scale, state.bounds);
+  const visible = visibleModelBounds({ x, y }, diameter, controlBounds);
   const openPanel = (view: PanelView) => {
+    const bounds = measureControls();
     setWheel(false);
-    window.embodied.position({ x: state.x, y: state.y, bounds: state.bounds });
+    const current = engine.current?.state ?? state;
+    const anchor = petAnchor(size, current, scale, current.bounds);
+    window.embodied.position(normalizePet(size, anchor, scale, bounds));
     window.embodied.showPanel(view);
   };
   return (
@@ -171,22 +199,31 @@ export function Pet() {
           open={typing}
           close={close}
           answer={(text) => engine.current?.answer(text)}
-          placement={bubblePlacement(size, { x, y, width: diameter, height: diameter })}
+          connect={() => openPanel('settings')}
+          placement={bubblePlacement(size, visible, { x, y, width: diameter, height: diameter })}
         />
         {notice && (
           <div
             className="pet-touch-note"
             role="status"
             style={{
-              top: Math.max(8, y - 40) - y,
-              left: Math.max(92, Math.min(size.width - 92, x + diameter / 2)) - x,
+              top: Math.max(8, visible.y - 40) - y,
+              left: Math.max(92, Math.min(size.width - 92, visible.x + visible.width / 2)) - x,
             }}
           >
             {notice}
           </div>
         )}
         {behavior.mark && (
-          <span key={behavior.sequence + behavior.id} className="behavior-mark" aria-hidden="true">
+          <span
+            key={behavior.sequence + behavior.id}
+            className="behavior-mark"
+            aria-hidden="true"
+            style={{
+              left: Math.max(8, Math.min(size.width - 28, visible.x + visible.width * 0.85)) - x,
+              top: Math.max(8, visible.y - 24) - y,
+            }}
+          >
             {behavior.mark}
           </span>
         )}
@@ -229,7 +266,7 @@ export function Pet() {
       </div>
       {wheel && (
         <PetWheel
-          position={wheelPosition(size, { x, y, width: diameter, height: diameter })}
+          position={wheelPosition(size, visible)}
           busy={companion.active || companion.busy}
           close={() => {
             setWheel(false);

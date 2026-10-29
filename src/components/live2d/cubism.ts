@@ -117,7 +117,9 @@ class CubismActor extends CubismUserModel {
     signal.throwIfAborted();
   }
   async play(name: string, signal: AbortSignal): Promise<void> {
-    this.stop();
+    signal.throwIfAborted();
+    this.generation++;
+    this.audio.stop();
     const generation = this.generation;
     const sourceName = Object.hasOwn(this.config.aliases, name) ? this.config.aliases[name]! : name;
     const source = this.config.sources[sourceName];
@@ -155,7 +157,11 @@ class CubismActor extends CubismUserModel {
     if (this.disposed || generation !== this.generation) return;
     this.selected = sourceName;
     if (source.kind === 'expression') this._expressionManager.startMotion(motion, false);
-    else this._motionManager.startMotionPriority(motion, false, 3);
+    else {
+      for (const entry of this._expressionManager.getCubismMotionQueueEntries())
+        entry.setFadeOut(Math.max(0, entry._motion.getFadeOutTime()));
+      this._motionManager.startMotionPriority(motion, false, 3);
+    }
     if (source.sound && !this.muted) await this.audio.play(source.sound, signal);
   }
   stop(): void {

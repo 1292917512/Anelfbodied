@@ -3,6 +3,7 @@ import type { HitMask } from './hit-mask';
 
 export interface ModelInstance {
   hitMask(): HitMask | undefined;
+  /** Resolves when replacement playback starts; components may blend from the current pose. */
   play(name: string, signal: AbortSignal): Promise<void>;
   stop(): void;
   dispose(): void;

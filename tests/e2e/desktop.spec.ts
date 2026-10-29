@@ -38,8 +38,15 @@ async function probePointer() {
     const window = BrowserWindow.getAllWindows().find((item) =>
       item.webContents.getURL().includes('view=pet'),
     )!;
+    const state = globalThis as unknown as { observedRegions: HitRegion[] };
     const contents = window.webContents;
-    const probe: PointerProbe = { x: 0, y: 0, regions: [] };
+    const probe: PointerProbe = {
+      x: 0,
+      y: 0,
+      get regions() {
+        return state.observedRegions;
+      },
+    };
     (globalThis as unknown as { pointerProbe: PointerProbe }).pointerProbe = probe;
     screen.getCursorScreenPoint = () => ({
       x: probe.x + window.getBounds().x,
@@ -50,9 +57,6 @@ async function probePointer() {
       probe.ignored = ignored;
       original(ignored, options);
     };
-    ipcMain.on('pet:regions', (event, regions: HitRegion[]) => {
-      if (event.sender === contents) probe.regions = regions;
-    });
     ipcMain.on('pet:capture', (event, captured: boolean) => {
       if (event.sender === contents) probe.captured = captured;
     });
@@ -99,6 +103,31 @@ async function visiblePetBounds() {
     ),
   );
   return region && regionBounds(region);
+}
+
+async function modelHitPoint() {
+  return app.evaluate(() => {
+    const region = (
+      globalThis as unknown as { pointerProbe: PointerProbe }
+    ).pointerProbe.regions.find((item) => item.kind === 'model');
+    if (region?.kind !== 'model') throw new Error('Missing model mask');
+    const { mask, origin, horizontal, vertical } = region;
+    let hit: { x: number; y: number; distance: number } | undefined;
+    for (let y = 1; y < mask.height - 1; y++)
+      for (let x = 1; x < mask.width - 1; x++) {
+        const index = y * mask.width + x;
+        if (!(mask.bits[index >> 3]! & (1 << (index & 7)))) continue;
+        const distance = Math.hypot(x - mask.width / 2, y - mask.height / 2);
+        if (!hit || distance < hit.distance) hit = { x, y, distance };
+      }
+    if (!hit) throw new Error('Empty model mask');
+    const u = (hit.x + 0.5) / mask.width,
+      v = (hit.y + 0.5) / mask.height;
+    return {
+      x: origin.x + horizontal.x * u + vertical.x * v,
+      y: origin.y + horizontal.y * u + vertical.y * v,
+    };
+  });
 }
 
 async function steadyModel() {
@@ -256,6 +285,49 @@ test('padded PNG characters reach visible edges and skin changes discard old bou
   await panel.evaluate(() => window.embodied.setAppearance({ skinId: 'narrow-edge', scale: 3 }));
   await probePointer();
   const viewport = await pet.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  const original = await pet.locator('.pet-anchor').boundingBox();
+  await pet.locator('.pet-body').click({ force: true });
+  await expect(pet.locator('.pet-wheel')).toBeVisible();
+  await pet.locator('.pet-wheel').evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+  });
+  const silhouette = (await visiblePetBounds())!;
+  const wheel = (await pet.locator('.pet-wheel').boundingBox())!;
+  const gap = Math.max(
+    wheel.x - silhouette.x - silhouette.width,
+    silhouette.x - wheel.x - wheel.width,
+  );
+  expect(gap).toBeGreaterThanOrEqual(10);
+  expect(gap).toBeLessThanOrEqual(14);
+  expect(await pet.locator('.pet-anchor').boundingBox()).toEqual(original);
+  const updates = () =>
+    app.evaluate(() => (globalThis as unknown as { regionUpdates: number }).regionUpdates);
+  const before = await updates();
+  await pet.evaluate(() => new Promise((resolve) => setTimeout(resolve, 400)));
+  expect((await updates()) - before).toBeLessThanOrEqual(1);
+  await pet.screenshot({ path: 'test-results/narrow-model-wheel.png' });
+  await pet.getByRole('menuitem', { name: '和桌宠聊天' }).click();
+  await expect(pet.getByRole('textbox', { name: '发送消息' })).toBeVisible();
+  await pet.getByRole('button', { name: '连接你的 AI ↗' }).click();
+  await expect(panel.getByLabel('频道地址')).toBeVisible();
+  const panelGap = await app.evaluate(({ BrowserWindow }) => {
+    const windows = BrowserWindow.getAllWindows();
+    const bounds = windows
+      .find((window) => !window.webContents.getURL().includes('view=pet'))!
+      .getBounds();
+    const area = windows
+      .find((window) => window.webContents.getURL().includes('view=pet'))!
+      .getBounds();
+    return { x: bounds.x - area.x, width: bounds.width };
+  });
+  const windowGap = Math.max(
+    panelGap.x - silhouette.x - silhouette.width,
+    silhouette.x - panelGap.x - panelGap.width,
+  );
+  expect(windowGap).toBeGreaterThanOrEqual(16);
+  expect(windowGap).toBeLessThanOrEqual(20);
+  await panel.getByRole('button', { name: '收起浮层' }).click();
+  await pet.keyboard.press('Escape');
   for (const [x, y] of [
     [0, 0],
     [1, 0],
@@ -408,6 +480,22 @@ test('Live2D discovers actions, renders real Cubism, cancels and fences skin cha
   );
   expect(pixels).toBeGreaterThan(1000);
   await steadyModel();
+  await pet.locator('.pet-body').focus();
+  await pet.keyboard.press('Enter');
+  await expect(pet.locator('.pet-wheel')).toBeVisible();
+  await expect
+    .poll(async () => {
+      const body = await visiblePetBounds();
+      const wheel = await pet.locator('.pet-wheel').boundingBox();
+      return (
+        !!body &&
+        !!wheel &&
+        Math.abs(Math.max(wheel.x - body.x - body.width, body.x - wheel.x - wheel.width) - 12) < 24
+      );
+    })
+    .toBe(true);
+  await pet.screenshot({ path: 'test-results/live2d-close-wheel.png' });
+  await pet.getByRole('button', { name: '收起轮盘' }).click();
   for (const edge of [0, 1]) {
     const id = `live2d-edge-${edge}`;
     await request(
@@ -493,6 +581,37 @@ test('Live2D discovers actions, renders real Cubism, cancels and fences skin cha
       receipts: [{ status: 'cancelled', completed: 0 }],
     });
     await expect(pet.locator('canvas')).toHaveAttribute('data-action', model.bindings.idle!);
+    await panel.evaluate(
+      ({ skinId, name }) =>
+        window.embodied.setBehaviors({
+          skinId,
+          patch: { drag: name, drop: name },
+        }),
+      { skinId: model.skinId, name: motion.name },
+    );
+    await panel.getByRole('button', { name: '收起浮层' }).click();
+    const grip = await modelHitPoint();
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL().includes('view=pet'))!
+        .focus(),
+    );
+    await expectPointerAt(grip.x, grip.y, false);
+    await pet.mouse.move(grip.x, grip.y);
+    await pet.mouse.down();
+    await pet.mouse.move(grip.x + 12, grip.y);
+    await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'drag');
+    await expect(pet.locator('canvas')).toHaveAttribute('data-action', motion.name);
+    await pet.mouse.up();
+    await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'drop');
+    await expect(pet.locator('canvas')).toHaveAttribute('data-action', motion.name);
+    await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'idle', {
+      timeout: 20000,
+    });
+    await expect(pet.locator('canvas')).toHaveAttribute('data-action', model.bindings.idle!);
+    await panel.evaluate(() => window.embodied.showPanel('appearance'));
+    if (!(await panel.getByRole('button', { name: 'Anelf · 银蓝猫耳 内置' }).isVisible()))
+      await panel.locator('.skin-chooser > summary').click();
     const abort = new AbortController();
     const sdkCall = client
       .callTool(
@@ -711,6 +830,35 @@ test.beforeEach(async () => {
   await expect.poll(() => app.windows().length).toBe(2);
   panel = app.windows().find((page) => !page.url().includes('view=pet'))!;
   pet = app.windows().find((page) => page.url().includes('view=pet'))!;
+  await pet.waitForLoadState('load');
+  await expect(pet.getByAltText('Anelf · 银蓝猫耳')).toBeVisible();
+  await app.evaluate(({ ipcMain, BrowserWindow }) => {
+    const pet = BrowserWindow.getAllWindows().find((window) =>
+      window.webContents.getURL().includes('view=pet'),
+    )!;
+    const contents = pet.webContents;
+    const state = globalThis as unknown as { observedRegions: HitRegion[]; regionUpdates: number };
+    let pressed = false;
+    // Keep native hover input separate from the simulated pressed mouse button.
+    contents.on('before-mouse-event', (event, mouse) => {
+      if (mouse.type === 'mouseDown' && mouse.button === 'left') pressed = true;
+      if (
+        pressed &&
+        ['mouseMove', 'mouseEnter', 'mouseLeave'].includes(mouse.type) &&
+        mouse.button !== 'left'
+      )
+        event.preventDefault();
+      if (mouse.type === 'mouseUp') pressed = false;
+    });
+    state.observedRegions = [];
+    state.regionUpdates = 0;
+    ipcMain.on('pet:regions', (event, regions: HitRegion[]) => {
+      if (event.sender !== contents) return;
+      state.observedRegions = regions;
+      state.regionUpdates++;
+    });
+  });
+  await pet.reload();
   expect(
     await app.evaluate(({ BrowserWindow, Menu }) => ({
       visible: BrowserWindow.getAllWindows()
@@ -1023,18 +1171,6 @@ test('native dragging switches work areas, reaches corners and keeps capture unt
     const pet = BrowserWindow.getAllWindows().find((window) =>
       window.webContents.getURL().includes('view=pet'),
     )!;
-    let pressed = false;
-    // Keep native hover input separate from the simulated pressed mouse button.
-    pet.webContents.on('before-mouse-event', (event, mouse) => {
-      if (mouse.type === 'mouseDown' && mouse.button === 'left') pressed = true;
-      if (
-        pressed &&
-        ['mouseMove', 'mouseEnter', 'mouseLeave'].includes(mouse.type) &&
-        mouse.button !== 'left'
-      )
-        event.preventDefault();
-      if (mouse.type === 'mouseUp') pressed = false;
-    });
     pet.setBounds(left);
     pet.focus();
     return { left, right };
@@ -1762,6 +1898,131 @@ test('MCP SDK cancellation stops a channel handshake without losing saved settin
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test('generic drag feedback settles into a running idle animation', async () => {
+  await pet.emulateMedia({ reducedMotion: 'no-preference' });
+  await probePointer();
+  const grip = await modelHitPoint();
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL().includes('view=pet'))!
+      .focus(),
+  );
+  await expectPointerAt(grip.x, grip.y, false);
+  await pet.mouse.move(grip.x, grip.y);
+  await pet.mouse.down();
+  await pet.mouse.move(grip.x + 12, grip.y);
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'drag');
+  await pet.mouse.up();
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'drop');
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'idle');
+  await expect
+    .poll(() =>
+      pet
+        .locator('.skin-frame')
+        .evaluate((element) =>
+          element
+            .getAnimations()
+            .some(
+              (animation) =>
+                animation.playState === 'running' &&
+                animation.effect?.getTiming().iterations === Infinity,
+            ),
+        ),
+    )
+    .toBe(true);
+  const pose = await pet
+    .locator('.skin-frame')
+    .evaluate((element) => getComputedStyle(element).transform);
+  await expect
+    .poll(() =>
+      pet.locator('.skin-frame').evaluate((element) => getComputedStyle(element).transform),
+    )
+    .not.toBe(pose);
+});
+
+test('drag release plays landing and resumes animated idle, including cancellation', async () => {
+  await steadyModel();
+  await probePointer();
+  const source = await mkdtemp(join(tmpdir(), 'embodied-drag-sequence-'));
+  const image = await pet.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const context = canvas.getContext('2d')!;
+    for (const [index, color] of ['#647b59', '#8ca077', '#a6b68e', '#758966'].entries()) {
+      context.fillStyle = color;
+      context.fillRect((index % 2) * 64, Math.floor(index / 2) * 64, 64, 64);
+    }
+    return canvas.toDataURL().split(',')[1]!;
+  });
+  for (const name of ['rest', 'lift', 'land'])
+    await writeFile(join(source, `${name}.png`), Buffer.from(image, 'base64'));
+  await writeFile(
+    join(source, 'manifest.json'),
+    JSON.stringify({
+      version: 2,
+      id: 'drag-sequence',
+      name: '连续动作测试',
+      type: 'png',
+      model: {
+        animations: Object.fromEntries(
+          ['rest', 'lift', 'land'].map((name) => [
+            name,
+            { file: `${name}.png`, columns: 2, frames: 4, fps: 8 },
+          ]),
+        ),
+      },
+      actions: {
+        rest: { source: 'rest' },
+        lift: { source: 'lift' },
+        land: { source: 'land', durationMs: 900 },
+      },
+      bindings: { idle: 'rest', drag: 'lift', drop: 'land' },
+    }),
+  );
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, source);
+  await panel.evaluate(() => window.embodied.importSkin());
+  await expect(pet.getByAltText('连续动作测试')).toBeVisible();
+  await expect(pet.locator('.model-view')).toHaveAttribute('data-model-status', 'ready');
+  const sprite = pet.locator('.sprite-sheet');
+  const advances = async () => {
+    const frame = await sprite.getAttribute('style');
+    await expect.poll(() => sprite.getAttribute('style')).not.toBe(frame);
+  };
+  const startDrag = async () => {
+    const box = (await pet.locator('.pet-body').boundingBox())!;
+    const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL().includes('view=pet'))!
+        .focus(),
+    );
+    await expectPointerAt(center.x, center.y, false);
+    await pet.mouse.move(center.x, center.y);
+    await pet.mouse.down();
+    await pet.mouse.move(center.x + 12, center.y);
+    await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'drag');
+    await expect(sprite).toHaveAttribute('src', /\/lift\.png(?:\?|$)/);
+  };
+  await startDrag();
+  await advances();
+  await pet.mouse.up();
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'drop');
+  await expect(sprite).toHaveAttribute('src', /\/land\.png(?:\?|$)/);
+  await advances();
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'idle');
+  await expect(sprite).toHaveAttribute('src', /\/rest\.png(?:\?|$)/);
+  await advances();
+  await startDrag();
+  await pet.locator('.pet-body').dispatchEvent('pointercancel');
+  await pet.mouse.up();
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'idle');
+  await expect(sprite).toHaveAttribute('src', /\/rest\.png(?:\?|$)/);
+  await advances();
+  await expectCaptured(false);
 });
 
 test('behavior mappings stay per skin, update live, and gestures clean up after pointer cancellation', async () => {

@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type { BrowserWindow } from 'electron';
 import { alphaMask, maskContains } from '../src/model/hit-mask';
-import { regionBounds, regionContains, type HitRegion } from '../src/shared/hit-region';
+import {
+  regionBounds,
+  regionContains,
+  sameHitRegions,
+  type HitRegion,
+} from '../src/shared/hit-region';
 import { petDragSchema, petPlacementSchema, pointerRegionsSchema } from '../src/contracts/pointer';
 import { PointerBoundary } from '../src/host/pointer-boundary';
 
@@ -23,6 +28,18 @@ const region: HitRegion = {
 afterEach(() => vi.useRealTimers());
 
 describe('model pointer boundary', () => {
+  it('skips identical payloads but publishes pixel, transform and control changes', () => {
+    const copy = { ...region, mask: { ...mask, bits: mask.bits.slice() } };
+    expect(sameHitRegions([region], [copy])).toBe(true);
+    copy.mask.bits[0]! ^= 1;
+    expect(sameHitRegions([region], [copy])).toBe(false);
+    expect(sameHitRegions([region], [{ ...region, origin: { x: 11, y: 20 } }])).toBe(false);
+    const control: HitRegion = { kind: 'rect', x: 0, y: 0, width: 240, height: 240 };
+    expect(sameHitRegions([region], [region, control])).toBe(false);
+    expect(sameHitRegions([control], [{ ...control, width: 241 }])).toBe(false);
+    expect(sameHitRegions([control], [])).toBe(false);
+    expect(sameHitRegions([control], [{ ...control }])).toBe(true);
+  });
   it('measures visible pixels without transparent padding, including rotated sparse shapes', () => {
     const pixels = new Uint8ClampedArray(8 * 8 * 4);
     for (const [x, y] of [

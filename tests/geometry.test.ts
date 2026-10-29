@@ -5,6 +5,7 @@ import {
   petDisplaySize,
   normalizePet,
   bubblePlacement,
+  visibleModelBounds,
 } from '../src/shared/geometry';
 
 describe('floating panel placement', () => {
@@ -100,11 +101,40 @@ describe('floating panel placement', () => {
     for (const x of [0, 1])
       for (const y of [0, 1]) {
         const anchor = petAnchor(area, { x, y });
-        const point = panelAnchor(area, panel, { x: area.x + anchor.x, y: area.y + anchor.y });
+        const point = panelAnchor(area, panel, {
+          x: area.x + anchor.x,
+          y: area.y + anchor.y,
+          width: 140,
+          height: 140,
+        });
         expect(point.x).toBeGreaterThanOrEqual(area.x);
         expect(point.y).toBeGreaterThanOrEqual(area.y);
         expect(point.x + panel.width).toBeLessThanOrEqual(area.x + area.width);
         expect(point.y + panel.height).toBeLessThanOrEqual(area.y + area.height);
       }
+  });
+  it('attaches controls to narrow visible models while keeping canvas-relative bubble offsets', () => {
+    const area = { x: -1920, y: 0, width: 1920, height: 1080 };
+    const canvas = { x: 650, y: 250, width: 700, height: 700 };
+    const visible = visibleModelBounds(canvas, canvas.width, {
+      x: 0.4,
+      y: 0.1,
+      width: 0.2,
+      height: 0.8,
+    });
+    const panel = { width: 400, height: 600 };
+    const location = panelAnchor(area, panel, { ...visible, x: visible.x + area.x });
+    expect(location.x + panel.width).toBe(visible.x + area.x - 18);
+    expect(location.y + panel.height).toBe(visible.y + visible.height);
+    const bubble = bubblePlacement(area, visible, canvas);
+    const x = canvas.x + bubble.left;
+    const top =
+      bubble.top === undefined
+        ? canvas.y + canvas.height - bubble.bottom! - bubble.maxHeight
+        : canvas.y + bubble.top;
+    expect(x).toBeGreaterThanOrEqual(12);
+    expect(x + bubble.width).toBeLessThanOrEqual(area.width - 12);
+    expect(top).toBeGreaterThanOrEqual(12);
+    expect(top + bubble.maxHeight).toBeLessThanOrEqual(area.height - 12);
   });
 });
