@@ -21,7 +21,7 @@ await client.connect(
 );
 const server = new Server(
   { name: 'desktop-embodied', title: productName, version },
-  { capabilities: { tools: {} } },
+  { capabilities: { tools: {} }, instructions: client.getInstructions() },
 );
 server.setRequestHandler(ListToolsRequestSchema, () => client.listTools());
 server.setRequestHandler(CallToolRequestSchema, (request, extra) =>

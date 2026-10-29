@@ -12,17 +12,19 @@
 
 ## 工具选择
 
-| 工具                       | 输入                                                     | 结果                                      |
-| -------------------------- | -------------------------------------------------------- | ----------------------------------------- |
-| `pet_capabilities`         | 无参数                                                   | 协议、动作 Schema 和限制                  |
-| `pet_execute`              | 完整 `desktop-pet/1` 批次对象                            | 等待批次结束，返回回执                    |
-| `pet_state`                | `{}` 或 `{"id":"command-id"}`                            | `{receipts:[...]}`，只查询，不执行        |
-| `pet_cancel`               | `{"id":"command-id"}` 或 `{"session":"task-session-id"}` | 等待本机动作停止，返回 `{receipts:[...]}` |
-| `pet_connection_state`     | 无参数                                                   | 脱敏频道设置、修订号与连接状态            |
-| `pet_configure_connection` | 部分频道配置                                             | 保存并默认连接，返回实际状态              |
-| `pet_connection_control`   | `{"action":"connect"}`、`disconnect` 或 `stop`           | 连接、断开或请求频道会话停止              |
+| 工具                       | 输入                                                     | 结果                                            |
+| -------------------------- | -------------------------------------------------------- | ----------------------------------------------- |
+| `pet_capabilities`         | 无参数                                                   | 协议、通用动作 Schema、限制及当前模型动作与状态 |
+| `pet_execute`              | 完整 `desktop-pet/1` 批次对象                            | 等待批次结束，返回回执                          |
+| `pet_state`                | `{}` 或 `{"id":"command-id"}`                            | `{receipts:[...]}`，只查询，不执行              |
+| `pet_cancel`               | `{"id":"command-id"}` 或 `{"session":"task-session-id"}` | 等待本机动作停止，返回 `{receipts:[...]}`       |
+| `pet_connection_state`     | 无参数                                                   | 脱敏频道设置、修订号与连接状态                  |
+| `pet_configure_connection` | 部分频道配置                                             | 保存并默认连接，返回实际状态                    |
+| `pet_connection_control`   | `{"action":"connect"}`、`disconnect` 或 `stop`           | 连接、断开或请求频道会话停止                    |
 
 `pet_execute` 的输入直接是批次对象，不要包在 `command`、`payload` 或 `message` 字段中。批次构造见[执行与恢复](../control/execution.md)，频道配置见[频道管理](../control/connection.md)。
+
+MCP 初始化会返回简短的服务使用说明，stdio 网关透传同一份说明；每个工具也提供独立用途与参数定义。宿主可能不展示初始化说明，因此以实际工具 Schema 和本技能共同判断调用方式。服务说明不携带地址或 Token，不会安装 Skill 或自动建立 Anelf 关联。
 
 成功工具结果同时提供 `structuredContent` 与 JSON 文本内容；优先读取 `structuredContent`。先检查 MCP 的 `isError`，工具调用失败不等于动作回执为 `failed`，也不证明此前动作没有发生。
 
