@@ -856,7 +856,9 @@ test('native dragging switches work areas, reaches corners and keeps capture unt
     const trace: string[] = [];
     (window as unknown as { dragTrace: string[] }).dragTrace = trace;
     for (const type of ['blur', 'focus', 'pointercancel', 'lostpointercapture', 'pointerup'])
-      window.addEventListener(type, () => trace.push(type));
+      window.addEventListener(type, (event) =>
+        trace.push(`${type}:${'buttons' in event ? event.buttons : ''}`),
+      );
   });
   const areas = await app.evaluate(({ BrowserWindow, screen }) => {
     const display = screen.getPrimaryDisplay();
@@ -879,6 +881,18 @@ test('native dragging switches work areas, reaches corners and keeps capture unt
     const pet = BrowserWindow.getAllWindows().find((window) =>
       window.webContents.getURL().includes('view=pet'),
     )!;
+    let pressed = false;
+    // Keep native hover input separate from the simulated pressed mouse button.
+    pet.webContents.on('before-mouse-event', (event, mouse) => {
+      if (mouse.type === 'mouseDown' && mouse.button === 'left') pressed = true;
+      if (
+        pressed &&
+        ['mouseMove', 'mouseEnter', 'mouseLeave'].includes(mouse.type) &&
+        mouse.button !== 'left'
+      )
+        event.preventDefault();
+      if (mouse.type === 'mouseUp') pressed = false;
+    });
     pet.setBounds(left);
     pet.focus();
     return { left, right };
