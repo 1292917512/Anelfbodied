@@ -852,6 +852,12 @@ test('touch preserves AI work, dragging takes over, and the utility panel stays 
 
 test('native dragging switches work areas, reaches corners and keeps capture until release', async () => {
   await probePointer();
+  await pet.evaluate(() => {
+    const trace: string[] = [];
+    (window as unknown as { dragTrace: string[] }).dragTrace = trace;
+    for (const type of ['blur', 'focus', 'pointercancel', 'lostpointercapture', 'pointerup'])
+      window.addEventListener(type, () => trace.push(type));
+  });
   const areas = await app.evaluate(({ BrowserWindow, screen }) => {
     const display = screen.getPrimaryDisplay();
     const area = display.workArea;
@@ -870,9 +876,11 @@ test('native dragging switches work areas, reaches corners and keeps capture unt
       ...display,
       workArea: point.x >= right.x ? right : left,
     });
-    BrowserWindow.getAllWindows()
-      .find((window) => window.webContents.getURL().includes('view=pet'))!
-      .setBounds(left);
+    const pet = BrowserWindow.getAllWindows().find((window) =>
+      window.webContents.getURL().includes('view=pet'),
+    )!;
+    pet.setBounds(left);
+    pet.focus();
     return { left, right };
   });
   await expect.poll(() => pet.evaluate(() => innerWidth)).toBe(areas.left.width);
@@ -931,7 +939,24 @@ test('native dragging switches work areas, reaches corners and keeps capture unt
         }, bottomRight),
       )
       .toBe(true);
-    await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'drag');
+    await expect(pet.locator('.pet-anchor'))
+      .toHaveAttribute('data-behavior', 'drag')
+      .catch(async (error) => {
+        console.log(
+          'Drag event trace:',
+          await pet.evaluate(() => (window as unknown as { dragTrace: string[] }).dragTrace),
+        );
+        console.log(
+          'Native focus:',
+          await app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows().map((window) => ({
+              focus: window.isFocused(),
+              bounds: window.getBounds(),
+            })),
+          ),
+        );
+        throw error;
+      });
   }
   await pet.mouse.up();
   await expectCaptured(false);
