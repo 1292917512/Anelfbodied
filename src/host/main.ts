@@ -16,7 +16,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
-import { pointerRegionsSchema } from '../contracts/pointer';
+import { petDragSchema, petPlacementSchema, pointerRegionsSchema } from '../contracts/pointer';
 import { z } from 'zod';
 import { Controller } from '../runtime/controller';
 import { Journal } from '../runtime/journal';
@@ -343,9 +343,7 @@ async function start(): Promise<void> {
   });
   listen('pet:position', (event, input: unknown) => {
     if (event.sender !== petContents) return;
-    const point = z
-      .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
-      .safeParse(input);
+    const point = petPlacementSchema.safeParse(input);
     if (point.success) desktop.position(point.data);
   });
   listen('pet:capture', (event, enabled: unknown) => {
@@ -355,10 +353,8 @@ async function start(): Promise<void> {
     if (event.sender !== petContents || event.senderFrame !== petContents.mainFrame) return;
     if (input === null) drag.stop(true);
     else {
-      const grab = z
-        .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
-        .safeParse(input);
-      if (grab.success) drag.start(grab.data);
+      const request = petDragSchema.safeParse(input);
+      if (request.success) drag.start(request.data);
     }
   });
   listen('pet:regions', (event, input: unknown) => {

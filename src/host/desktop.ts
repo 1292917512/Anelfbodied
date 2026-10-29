@@ -1,5 +1,11 @@
 import { BrowserWindow, Menu, screen, dialog } from 'electron';
-import { petAnchor, panelAnchor, petDisplaySize, type Point } from '../shared/geometry';
+import {
+  petAnchor,
+  panelAnchor,
+  petDisplaySize,
+  fullModelBounds,
+  type PetPlacement,
+} from '../shared/geometry';
 import type { PanelView } from '../contracts/client';
 import { productName } from '../shared/product';
 
@@ -43,7 +49,7 @@ export function createDesktop(
     webPreferences,
   });
   panel.setAlwaysOnTop(true, 'floating');
-  let position: Point = { x: 0.78, y: 0.75 };
+  let position: PetPlacement = { x: 0.78, y: 0.75, bounds: fullModelBounds };
   let scale = 1;
   const showPanel = (view?: PanelView) => {
     if (view) panel.webContents.send('app:view', view);
@@ -59,7 +65,7 @@ export function createDesktop(
         Math.min(current.width, area.width - 24),
         Math.min(current.height, area.height - 24),
       );
-    const anchor = petAnchor(area, position, scale);
+    const anchor = petAnchor(area, position, scale, position.bounds);
     const location = panelAnchor(
       area,
       panel.getBounds(),
@@ -136,7 +142,7 @@ export function createDesktop(
     scale: (value: number) => {
       scale = value;
     },
-    position: (point: Point) => {
+    position: (point: PetPlacement) => {
       position = point;
     },
   };

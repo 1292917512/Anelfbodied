@@ -8,6 +8,11 @@ export interface Size {
   width: number;
   height: number;
 }
+export type Bounds = Point & Size;
+export const fullModelBounds: Bounds = { x: 0, y: 0, width: 1, height: 1 };
+export interface PetPlacement extends Point {
+  bounds: Bounds;
+}
 
 /** Fits the model to the work area without reserving space for transient controls. */
 export function petDisplaySize(size: Size, scale = 1) {
@@ -15,25 +20,33 @@ export function petDisplaySize(size: Size, scale = 1) {
   const diameter = Math.max(1, Math.min(requested, size.width, size.height));
   return { requested, diameter, limited: diameter < requested };
 }
-function petRange(size: Size, scale: number) {
+function petRange(size: Size, scale: number, bounds: Bounds) {
   const { diameter } = petDisplaySize(size, scale);
   return {
-    width: Math.max(0, size.width - diameter),
-    height: Math.max(0, size.height - diameter),
+    left: -bounds.x * diameter,
+    top: -bounds.y * diameter,
+    width: Math.max(0, size.width - bounds.width * diameter),
+    height: Math.max(0, size.height - bounds.height * diameter),
   };
 }
-export function petAnchor(size: Size, point: Point, scale = 1): Point {
-  const range = petRange(size, scale);
+export function petAnchor(size: Size, point: Point, scale = 1, bounds = fullModelBounds): Point {
+  const range = petRange(size, scale, bounds);
   return {
-    x: range.width * Math.max(0, Math.min(1, point.x)),
-    y: range.height * Math.max(0, Math.min(1, point.y)),
+    x: range.left + range.width * Math.max(0, Math.min(1, point.x)),
+    y: range.top + range.height * Math.max(0, Math.min(1, point.y)),
   };
 }
-export function normalizePet(size: Size, point: Point, scale = 1): Point {
-  const range = petRange(size, scale);
+export function normalizePet(
+  size: Size,
+  point: Point,
+  scale = 1,
+  bounds = fullModelBounds,
+): PetPlacement {
+  const range = petRange(size, scale, bounds);
   return {
-    x: range.width ? Math.max(0, Math.min(1, point.x / range.width)) : 0.5,
-    y: range.height ? Math.max(0, Math.min(1, point.y / range.height)) : 0.5,
+    x: range.width ? Math.max(0, Math.min(1, (point.x - range.left) / range.width)) : 0.5,
+    y: range.height ? Math.max(0, Math.min(1, (point.y - range.top) / range.height)) : 0.5,
+    bounds,
   };
 }
 
@@ -45,11 +58,19 @@ export function bubblePlacement(viewport: Size, body: Point & Size) {
     gap,
     Math.min(viewport.width - width - gap, body.x + body.width / 2 - width / 2),
   );
-  const above = body.y - gap * 2;
-  const below = viewport.height - body.y - body.height - gap * 2;
+  const upperEdge = Math.min(viewport.height - gap, body.y - gap);
+  const lowerEdge = Math.max(gap, body.y + body.height + gap);
+  const above = upperEdge - gap;
+  const below = viewport.height - lowerEdge - gap;
   if (above >= 160 && above >= below)
-    return { left: left - body.x, width, bottom: body.height + gap, maxHeight: above };
-  if (below >= 160) return { left: left - body.x, width, top: body.height + gap, maxHeight: below };
+    return {
+      left: left - body.x,
+      width,
+      bottom: body.y + body.height - upperEdge,
+      maxHeight: above,
+    };
+  if (below >= 160)
+    return { left: left - body.x, width, top: lowerEdge - body.y, maxHeight: below };
   const side =
     body.x + body.width + gap + width <= viewport.width - gap
       ? body.x + body.width + gap

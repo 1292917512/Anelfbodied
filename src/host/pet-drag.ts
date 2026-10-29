@@ -1,16 +1,17 @@
 import { screen, type BrowserWindow } from 'electron';
-import { normalizePet, petDisplaySize, type Point } from '../shared/geometry';
+import { normalizePet, petDisplaySize, type PetPlacement } from '../shared/geometry';
+import type { PetDragRequest } from '../contracts/pointer';
 
 /** Tracks a captured drag in desktop DIP coordinates across monitor boundaries. */
 export class PetDrag {
   private timer?: ReturnType<typeof setInterval>;
-  private grab?: Point;
+  private request?: PetDragRequest;
   private previous?: string;
 
   constructor(
     private readonly window: BrowserWindow,
     private readonly scale: () => number,
-    private readonly position: (point: Point | null) => void,
+    private readonly position: (point: PetPlacement | null) => void,
     private readonly capture: (enabled: boolean) => void,
   ) {
     const stop = () => this.stop();
@@ -21,12 +22,12 @@ export class PetDrag {
     window.webContents.on('did-start-loading', stop);
   }
 
-  start(grab: Point): void {
-    if (this.grab) return;
-    this.grab = grab;
+  start(request: PetDragRequest): void {
+    if (this.request) return;
+    this.request = request;
     this.previous = undefined;
     this.tick();
-    if (!this.grab) return;
+    if (!this.request) return;
     this.timer = setInterval(() => this.tick(), 16);
     this.timer.unref();
   }
@@ -35,14 +36,14 @@ export class PetDrag {
     if (final) this.tick();
     clearInterval(this.timer);
     this.timer = undefined;
-    if (!this.grab) return;
-    this.grab = undefined;
+    if (!this.request) return;
+    this.request = undefined;
     this.capture(false);
     this.position(null);
   }
 
   private tick(): void {
-    if (!this.grab) return;
+    if (!this.request) return;
     if (this.window.isDestroyed() || !this.window.isVisible()) return this.stop();
     const cursor = screen.getCursorScreenPoint();
     const area = screen.getDisplayNearestPoint(cursor).workArea;
@@ -50,10 +51,11 @@ export class PetDrag {
     const point = normalizePet(
       area,
       {
-        x: cursor.x - area.x - this.grab.x * size,
-        y: cursor.y - area.y - this.grab.y * size,
+        x: cursor.x - area.x - this.request.grab.x * size,
+        y: cursor.y - area.y - this.request.grab.y * size,
       },
       this.scale(),
+      this.request.bounds,
     );
     const bounds = this.window.getBounds();
     if (
@@ -63,7 +65,7 @@ export class PetDrag {
       bounds.height !== area.height
     )
       this.window.setBounds(area);
-    if (!this.grab) return;
+    if (!this.request) return;
     this.capture(true);
     const key = `${area.x},${area.y},${area.width},${area.height},${point.x},${point.y}`;
     if (key !== this.previous) {

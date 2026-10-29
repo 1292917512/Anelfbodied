@@ -1,5 +1,24 @@
 import { z } from 'zod';
 import type { HitRegion } from '../shared/hit-region';
+import type { Bounds, PetPlacement } from '../shared/geometry';
+
+const normalized = z.number().min(0).max(1);
+const modelBounds: z.ZodType<Bounds> = z.object({
+  x: z.number().min(-4).max(4),
+  y: z.number().min(-4).max(4),
+  width: z.number().positive().max(8),
+  height: z.number().positive().max(8),
+});
+export const petPlacementSchema: z.ZodType<PetPlacement> = z.object({
+  x: normalized,
+  y: normalized,
+  bounds: modelBounds,
+});
+export const petDragSchema = z.object({
+  grab: z.object({ x: normalized, y: normalized }),
+  bounds: modelBounds,
+});
+export type PetDragRequest = z.infer<typeof petDragSchema>;
 
 const coordinate = z.number().min(-100000).max(100000);
 const point = z.object({ x: coordinate, y: coordinate });

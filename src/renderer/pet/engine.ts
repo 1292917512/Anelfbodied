@@ -1,9 +1,8 @@
 import type { Action, ActionResult } from '../../protocol/schema';
 import type { PresentationOrder } from '../../protocol/presentation';
+import { fullModelBounds, type PetPlacement } from '../../shared/geometry';
 
-export interface PetState {
-  x: number;
-  y: number;
+export interface PetState extends PetPlacement {
   face: Extract<Action, { action: 'emote' }>['name'];
   text: string;
   question: string;
@@ -14,6 +13,7 @@ export interface PetState {
 const initial = (): PetState => ({
   x: 0.78,
   y: 0.75,
+  bounds: fullModelBounds,
   face: 'neutral',
   text: '',
   question: '',
@@ -46,10 +46,12 @@ export class PetEngine {
     if (this.state.question && text.trim())
       this.current?.finish({ outcome: 'completed', answer: text.slice(0, 4000) });
   }
-  move(x: number, y: number): void {
+  move(placement: PetPlacement): void {
     this.current?.finish({ outcome: 'cancelled', detail: 'User moved the pet' });
-    this.state.x = Math.max(0, Math.min(1, x));
-    this.state.y = Math.max(0, Math.min(1, y));
+    this.place(placement);
+  }
+  place(placement: PetPlacement): void {
+    Object.assign(this.state, placement);
     this.emit();
   }
   dispose(): void {

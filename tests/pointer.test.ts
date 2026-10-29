@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type { BrowserWindow } from 'electron';
 import { alphaMask, maskContains } from '../src/model/hit-mask';
-import { regionContains, type HitRegion } from '../src/shared/hit-region';
-import { pointerRegionsSchema } from '../src/contracts/pointer';
+import { regionBounds, regionContains, type HitRegion } from '../src/shared/hit-region';
+import { petDragSchema, petPlacementSchema, pointerRegionsSchema } from '../src/contracts/pointer';
 import { PointerBoundary } from '../src/host/pointer-boundary';
 
 const cursor = vi.hoisted(() => ({ x: 0, y: 0 }));
@@ -23,6 +23,37 @@ const region: HitRegion = {
 afterEach(() => vi.useRealTimers());
 
 describe('model pointer boundary', () => {
+  it('measures visible pixels without transparent padding, including rotated sparse shapes', () => {
+    const pixels = new Uint8ClampedArray(8 * 8 * 4);
+    for (const [x, y] of [
+      [3, 1],
+      [4, 1],
+      [3, 6],
+      [4, 6],
+    ])
+      pixels[(y! * 8 + x!) * 4 + 3] = 255;
+    const sparse = alphaMask(pixels, 8, 8);
+    const bounds = regionBounds({ ...region, mask: sparse });
+    expect(bounds).toEqual({ x: 47.5, y: 30, width: 25, height: 60 });
+    expect(
+      regionBounds({ ...region, mask: alphaMask(new Uint8ClampedArray(16), 2, 2) }),
+    ).toBeUndefined();
+    const diagonal = { ...region, horizontal: { x: 100, y: 100 }, vertical: { x: -80, y: 80 } };
+    expect(regionBounds(diagonal)).toEqual({ x: -30, y: 20, width: 100, height: 180 });
+  });
+  it('validates finite visible placement bounds at the IPC boundary', () => {
+    const placement = { x: 1, y: 0, bounds: { x: 0.3, y: 0.1, width: 0.4, height: 0.8 } };
+    expect(petPlacementSchema.safeParse(placement).success).toBe(true);
+    expect(
+      petDragSchema.safeParse({ grab: { x: 0.5, y: 0.5 }, bounds: placement.bounds }).success,
+    ).toBe(true);
+    for (const bounds of [
+      { ...placement.bounds, width: 0 },
+      { ...placement.bounds, x: NaN },
+      { ...placement.bounds, height: Infinity },
+    ])
+      expect(petPlacementSchema.safeParse({ ...placement, bounds }).success).toBe(false);
+  });
   it('excludes transparent holes, faint shadows and coordinates outside the surface', () => {
     expect(maskContains(mask, 0.2, 0.2)).toBe(true);
     expect(maskContains(mask, 0.7, 0.2)).toBe(false);

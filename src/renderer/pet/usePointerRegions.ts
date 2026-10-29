@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import type { HitMask } from '../../model/hit-mask';
-import { regionContains, type HitRegion } from '../../shared/hit-region';
+import { regionContains, regionBounds, type HitRegion } from '../../shared/hit-region';
+import { fullModelBounds, type Bounds } from '../../shared/geometry';
 
 function rectangles(root: HTMLElement, selector: string): HitRegion[] {
   return [...root.querySelectorAll(selector)].map((element) => {
@@ -56,6 +57,20 @@ export function usePointerRegions(hitMask: () => HitMask | undefined) {
   }, []);
   return {
     anchor,
+    bounds: (): Bounds => {
+      const root = anchor.current;
+      const body = root?.querySelector('.pet-anchor')?.getBoundingClientRect();
+      const region =
+        root && modelRegions(root, current.current()).find((item) => item.kind === 'model');
+      const bounds = region && regionBounds(region);
+      if (!body?.width || !body.height || !bounds) return fullModelBounds;
+      return {
+        x: (bounds.x - body.x) / body.width,
+        y: (bounds.y - body.y) / body.height,
+        width: bounds.width / body.width,
+        height: bounds.height / body.height,
+      };
+    },
     hitTest: (x: number, y: number) =>
       !!anchor.current &&
       modelRegions(anchor.current, current.current()).some((region) =>

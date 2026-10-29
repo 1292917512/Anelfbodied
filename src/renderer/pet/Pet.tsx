@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { PetEngine, type PetState } from './engine';
-import { bubblePlacement, petAnchor, petDisplaySize } from '../../shared/geometry';
+import {
+  bubblePlacement,
+  fullModelBounds,
+  normalizePet,
+  petAnchor,
+  petDisplaySize,
+} from '../../shared/geometry';
 import type { CompanionState, PanelView } from '../../contracts/client';
 import { usePetGestures } from './usePetGestures';
 import { usePointerRegions } from './usePointerRegions';
@@ -16,6 +22,7 @@ export function Pet() {
   const [state, setState] = useState<PetState>({
     x: 0.78,
     y: 0.75,
+    bounds: fullModelBounds,
     face: 'neutral',
     text: '',
     question: '',
@@ -42,6 +49,8 @@ export function Pet() {
   const scale = companion.appearance?.scale ?? 1;
   const skin = companion.appearance?.skin;
   const { diameter } = petDisplaySize(size, scale);
+  const placementContext = useRef({ size, scale });
+  placementContext.current = { size, scale };
   const behavior = useBehavior(
     skin,
     [
@@ -75,6 +84,7 @@ export function Pet() {
   };
   const gestures = usePetGestures({
     hitTest: pointer.hitTest,
+    bounds: pointer.bounds,
     menu: () => {
       touch();
       toggleWheel();
@@ -88,7 +98,7 @@ export function Pet() {
         setWheel(false);
       } else if (!cancelled) behavior.trigger('drop');
     },
-    move: (x, y) => engine.current?.move(x, y),
+    move: (placement) => engine.current?.move(placement),
   });
   useEffect(() => {
     const runtime = new PetEngine(
@@ -110,7 +120,14 @@ export function Pet() {
     window.addEventListener('resize', resize);
     window.addEventListener('keydown', escape);
     window.addEventListener('blur', blur);
-    const off = window.embodied.onOrder((order) => runtime.dispatch(order));
+    const off = window.embodied.onOrder((order) => {
+      if (order.type === 'execute' && order.action.action === 'move') {
+        const { size, scale } = placementContext.current;
+        const anchor = petAnchor(size, runtime.state, scale, runtime.state.bounds);
+        runtime.place(normalizePet(size, anchor, scale, pointer.bounds()));
+      }
+      runtime.dispatch(order);
+    });
     const offState = window.embodied.onCompanion(setCompanion);
     void window.embodied.companion().then(setCompanion);
     window.embodied.ready();
@@ -125,13 +142,20 @@ export function Pet() {
     };
   }, []);
   useEffect(() => {
-    const timer = setTimeout(() => window.embodied.position({ x: state.x, y: state.y }), 100);
+    const runtime = engine.current;
+    if (runtime) runtime.place({ x: runtime.state.x, y: runtime.state.y, bounds: fullModelBounds });
+  }, [companion.appearance?.revision]);
+  useEffect(() => {
+    const timer = setTimeout(
+      () => window.embodied.position({ x: state.x, y: state.y, bounds: state.bounds }),
+      100,
+    );
     return () => clearTimeout(timer);
-  }, [state.x, state.y]);
-  const { x, y } = petAnchor(size, state, scale);
+  }, [state.x, state.y, state.bounds]);
+  const { x, y } = petAnchor(size, state, scale, state.bounds);
   const openPanel = (view: PanelView) => {
     setWheel(false);
-    window.embodied.position({ x: state.x, y: state.y });
+    window.embodied.position({ x: state.x, y: state.y, bounds: state.bounds });
     window.embodied.showPanel(view);
   };
   return (

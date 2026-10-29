@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent, MouseEvent } from 'react';
+import type { Bounds, PetPlacement } from '../../shared/geometry';
 
 interface Callbacks {
   hitTest(x: number, y: number): boolean;
@@ -7,7 +8,8 @@ interface Callbacks {
   touch(): void;
   talk(): void;
   dragging(active: boolean, cancelled: boolean): void;
-  move(x: number, y: number): void;
+  move(placement: PetPlacement): void;
+  bounds(): Bounds;
 }
 export function usePetGestures(callbacks: Callbacks) {
   const [pressed, setPressed] = useState(false);
@@ -41,7 +43,7 @@ export function usePetGestures(callbacks: Callbacks) {
   useEffect(() => {
     const blur = () => release(true);
     const off = window.embodied.onPetDrag((point) => {
-      if (point && nativeDrag.current) current.current.move(point.x, point.y);
+      if (point && nativeDrag.current) current.current.move(point);
       else if (!point) {
         nativeDrag.current = false;
         release(true);
@@ -123,7 +125,10 @@ export function usePetGestures(callbacks: Callbacks) {
           clearTimeout(click.current);
           current.current.dragging(true, false);
           nativeDrag.current = true;
-          window.embodied.dragPet({ x: drag.current.offsetX, y: drag.current.offsetY });
+          window.embodied.dragPet({
+            grab: { x: drag.current.offsetX, y: drag.current.offsetY },
+            bounds: current.current.bounds(),
+          });
         }
       },
       onPointerUp(event: PointerEvent<HTMLButtonElement>) {

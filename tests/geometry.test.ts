@@ -66,6 +66,34 @@ describe('floating panel placement', () => {
     expect(small).toMatchObject({ requested: 1400, limited: true });
     expect(large).toEqual({ requested: 1400, diameter: 1400, limited: false });
   });
+  it('constrains visible character edges instead of transparent canvas edges', () => {
+    const viewport = { width: 800, height: 600 };
+    const bounds = { x: 0.35, y: 0.1, width: 0.3, height: 0.8 };
+    for (const scale of [1, 10])
+      for (const x of [0, 0.5, 1])
+        for (const y of [0, 0.5, 1]) {
+          const diameter = petDisplaySize(viewport, scale).diameter;
+          const anchor = petAnchor(viewport, { x, y }, scale, bounds);
+          expect(anchor.x + bounds.x * diameter).toBeCloseTo(
+            (viewport.width - bounds.width * diameter) * x,
+          );
+          expect(anchor.y + bounds.y * diameter).toBeCloseTo(
+            (viewport.height - bounds.height * diameter) * y,
+          );
+          expect(normalizePet(viewport, anchor, scale, bounds)).toEqual({ x, y, bounds });
+          const bubble = bubblePlacement(viewport, {
+            ...anchor,
+            width: diameter,
+            height: diameter,
+          });
+          const top =
+            bubble.top === undefined
+              ? anchor.y + diameter - bubble.bottom! - bubble.maxHeight
+              : anchor.y + bubble.top;
+          expect(top).toBeGreaterThanOrEqual(0);
+          expect(top + bubble.maxHeight).toBeLessThanOrEqual(viewport.height);
+        }
+  });
   it('fits all corners on a monitor with a negative desktop origin', () => {
     const area = { x: -1920, y: -200, width: 1920, height: 1080 };
     const panel = { width: 400, height: 600 };

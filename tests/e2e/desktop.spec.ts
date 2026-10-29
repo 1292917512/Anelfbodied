@@ -18,6 +18,7 @@ import { PROTOCOL } from '../../src/protocol/schema';
 import type { ConnectionOverview } from '../../src/integrations/anelf/contracts';
 import type { ModelCapabilities } from '../../src/protocol/model';
 import type { HitRegion } from '../../src/shared/hit-region';
+import { regionBounds } from '../../src/shared/hit-region';
 
 const require = createRequire(import.meta.url);
 let app: ElectronApplication, panel: Page, pet: Page;
@@ -89,6 +90,23 @@ async function expectCaptured(captured: boolean) {
       ),
     )
     .toBe(captured);
+}
+
+async function visiblePetBounds() {
+  const region = await app.evaluate(() =>
+    (globalThis as unknown as { pointerProbe: PointerProbe }).pointerProbe.regions.find(
+      (item) => item.kind === 'model',
+    ),
+  );
+  return region && regionBounds(region);
+}
+
+async function steadyModel() {
+  await pet.emulateMedia({ reducedMotion: 'reduce' });
+  await pet.addStyleTag({
+    content:
+      '.skin-look, .skin-frame { transform: none !important; rotate: none !important; scale: none !important; animation: none !important; }',
+  });
 }
 
 test('transparent model pixels pass through without clicks, chat or drag takeover', async () => {
@@ -202,6 +220,99 @@ test('invalid Live2D keeps failure and retry visible without announcing readines
   await expect(pet.getByAltText('Anelf · 银蓝猫耳')).toBeVisible();
 });
 
+test('padded PNG characters reach visible edges and skin changes discard old bounds', async () => {
+  await steadyModel();
+  const install = async (id: string, padded: boolean) => {
+    const source = await mkdtemp(join(tmpdir(), 'embodied-visible-edge-'));
+    const image = await pet.evaluate((padding) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 256;
+      const context = canvas.getContext('2d')!;
+      context.fillStyle = '#4466cc';
+      if (padding) context.fillRect(96, 16, 64, 224);
+      else context.fillRect(0, 0, 256, 256);
+      return canvas.toDataURL().split(',')[1]!;
+    }, padded);
+    await writeFile(join(source, 'pet.png'), Buffer.from(image, 'base64'));
+    await writeFile(
+      join(source, 'manifest.json'),
+      JSON.stringify({
+        version: 2,
+        id,
+        name: id,
+        type: 'png',
+        model: { animations: { idle: { file: 'pet.png', frames: 1, columns: 1, fps: 1 } } },
+        bindings: { idle: 'idle' },
+      }),
+    );
+    await app.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+    }, source);
+    await panel.evaluate(() => window.embodied.importSkin());
+    await expect(pet.locator('.model-view')).toHaveAttribute('data-model-status', 'ready');
+    await expect(pet.getByAltText(id)).toBeVisible();
+  };
+  await install('narrow-edge', true);
+  await panel.evaluate(() => window.embodied.setAppearance({ skinId: 'narrow-edge', scale: 3 }));
+  await probePointer();
+  const viewport = await pet.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  for (const [x, y] of [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+    [1, 1],
+  ]) {
+    const id = `visible-${x}-${y}`;
+    await request(
+      '/v1/commands',
+      command(id, [
+        { action: 'move', x, y, durationMs: 100 },
+        { action: 'say', text: id, durationMs: 30000 },
+      ]),
+    );
+    await expect(pet.getByText(id, { exact: true })).toBeVisible();
+    await expect
+      .poll(async () => {
+        const r = await visiblePetBounds();
+        return (
+          !!r &&
+          Math.abs(x ? r.x + r.width - viewport.width : r.x) < 1 &&
+          Math.abs(y ? r.y + r.height - viewport.height : r.y) < 1
+        );
+      })
+      .toBe(true);
+    expect(
+      await pet.locator('.pet-body').evaluate(
+        (element, target) => {
+          const r = element.getBoundingClientRect();
+          return target.x ? r.right > innerWidth + 100 : r.left < -100;
+        },
+        { x, y },
+      ),
+    ).toBe(true);
+    expect(
+      await pet.locator('.pet-bubble').evaluate((element) => {
+        const r = element.getBoundingClientRect();
+        return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+      }),
+    ).toBe(true);
+    await request('/v1/cancel', { id });
+  }
+  await install('wide-edge', false);
+  await expect
+    .poll(async () => {
+      const r = await visiblePetBounds();
+      return (
+        !!r &&
+        r.x >= -1 &&
+        r.y >= -1 &&
+        r.x + r.width <= viewport.width + 1 &&
+        r.y + r.height <= viewport.height + 1
+      );
+    })
+    .toBe(true);
+});
+
 test('Live2D discovers actions, renders real Cubism, cancels and fences skin changes through MCP', async () => {
   test.skip(
     !process.env.EMBODIED_LIVE2D_FIXTURE,
@@ -296,6 +407,36 @@ test('Live2D discovers actions, renders real Cubism, cancels and fences skin cha
       ),
   );
   expect(pixels).toBeGreaterThan(1000);
+  await steadyModel();
+  for (const edge of [0, 1]) {
+    const id = `live2d-edge-${edge}`;
+    await request(
+      '/v1/commands',
+      command(id, [{ action: 'move', x: edge, y: edge, durationMs: 100 }]),
+    );
+    await expect
+      .poll(async () => (await (await request(`/v1/receipts/${id}`)).json()).status)
+      .toBe('completed');
+    const viewport = await pet.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    await expect
+      .poll(async () => {
+        const bounds = await visiblePetBounds();
+        if (!bounds) return false;
+        // Live2D breath and physics continue between opacity samples.
+        return edge
+          ? Math.abs(bounds.x + bounds.width - viewport.width) < 24 &&
+              Math.abs(bounds.y + bounds.height - viewport.height) < 24
+          : Math.abs(bounds.x) < 24 && Math.abs(bounds.y) < 24;
+      })
+      .toBe(true);
+    expect(
+      await pet.locator('canvas').evaluate((element, end) => {
+        const rect = element.getBoundingClientRect();
+        return end ? rect.right > innerWidth : rect.left < 0;
+      }, edge),
+    ).toBe(true);
+  }
+  await pet.screenshot({ path: 'test-results/live2d-visible-edge.png' });
   const client = await connectMcp();
   try {
     const capabilities = (await client.callTool({ name: 'pet_capabilities' }))
@@ -851,6 +992,7 @@ test('touch preserves AI work, dragging takes over, and the utility panel stays 
 });
 
 test('native dragging switches work areas, reaches corners and keeps capture until release', async () => {
+  await steadyModel();
   await probePointer();
   await pet.evaluate(() => {
     const trace: string[] = [];
@@ -945,14 +1087,26 @@ test('native dragging switches work areas, reaches corners and keeps capture unt
       .toEqual(area);
     await expect
       .poll(() =>
-        body.evaluate((element, end) => {
-          const rect = element.getBoundingClientRect();
-          return end
-            ? Math.abs(rect.right - innerWidth) < 1 && Math.abs(rect.bottom - innerHeight) < 1
-            : rect.left === 0 && rect.top === 0;
-        }, bottomRight),
+        (async () => {
+          const rect = await visiblePetBounds();
+          return (
+            !!rect &&
+            (bottomRight
+              ? Math.abs(rect.x + rect.width - area.width) < 1 &&
+                Math.abs(rect.y + rect.height - area.height) < 1
+              : Math.abs(rect.x) < 1 && Math.abs(rect.y) < 1)
+          );
+        })(),
       )
       .toBe(true);
+    expect(
+      await body.evaluate((element, end) => {
+        const rect = element.getBoundingClientRect();
+        return end
+          ? rect.right > innerWidth && rect.bottom > innerHeight
+          : rect.left < 0 && rect.top < 0;
+      }, bottomRight),
+    ).toBe(true);
     await expect(pet.locator('.pet-anchor'))
       .toHaveAttribute('data-behavior', 'drag')
       .catch(async (error) => {
@@ -1066,6 +1220,8 @@ test('imports a sprite skin, changes scale and switches back without interruptin
 });
 
 test('size controls allow precise large models and fit smaller screens without losing settings', async () => {
+  await steadyModel();
+  await probePointer();
   await openSettings();
   await panel.getByRole('button', { name: '更换形象', exact: true }).click();
   await panel.locator('.skin-chooser > summary').click();
@@ -1119,12 +1275,19 @@ test('size controls allow precise large models and fit smaller screens without l
   await pet.mouse.down();
   await pet.mouse.move(body.x + body.width / 2 - 80, body.y + body.height / 2 - 30, { steps: 6 });
   await pet.mouse.up();
-  expect(
-    await pet.locator('.pet-body').evaluate((element) => {
-      const r = element.getBoundingClientRect();
-      return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
-    }),
-  ).toBe(true);
+  await expect
+    .poll(async () => {
+      const r = await visiblePetBounds();
+      const size = await pet.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+      return (
+        !!r &&
+        r.x >= -1 &&
+        r.y >= -1 &&
+        r.x + r.width <= size.width + 1 &&
+        r.y + r.height <= size.height + 1
+      );
+    })
+    .toBe(true);
   await request(
     '/v1/commands',
     command('large-edge', [
@@ -1134,12 +1297,23 @@ test('size controls allow precise large models and fit smaller screens without l
   );
   await expect(pet.getByRole('button', { name: '确认', exact: true })).toBeVisible();
   const bounds = await pet.evaluate(() =>
-    ['.pet-body', '.pet-bubble'].map((selector) => {
+    ['.pet-bubble'].map((selector) => {
       const r = document.querySelector(selector)!.getBoundingClientRect();
       return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
     }),
   );
-  expect(bounds).toEqual([true, true]);
+  expect(bounds).toEqual([true]);
+  await expect
+    .poll(async () => {
+      const r = await visiblePetBounds();
+      const size = await pet.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+      return (
+        !!r &&
+        Math.abs(r.x + r.width - size.width) < 1 &&
+        Math.abs(r.y + r.height - size.height) < 1
+      );
+    })
+    .toBe(true);
   await pet.getByRole('button', { name: '确认', exact: true }).click();
   await expect
     .poll(async () => (await (await request('/v1/receipts/large-edge')).json()).status)
