@@ -41,3 +41,20 @@ MCP 最多 16 个会话，每会话最多 32 个并发请求，闲置 15 分钟�
 回执文件上限 2000 条 / 8 MB，完成记录在命令到期 24 小时后回收；达到容量时拒绝新任务，不提前淘汰仍有效的去重记录。去重保障有明确时间窗口，不能用新 ID 盲目重试 `unknown` 的操作。
 
 Anelf SSE 重连只补显示历史。完整终止帧缺失时客户端保留不确定状态，点击停止与服务端同步。动作回执通过 MCP 工具结果返回或 HTTP 查询，不另外发送聊天事件。`skills` 字段由 Anelf 转译为内部标签，客户端不在 `message` 中注入操作指令。
+
+## 动态模型动作
+
+pet_capabilities 与 GET /v1/capabilities 同时返回通用行为 schemas 和当前 model：skinId、name、type、revision、status、actions、bindings、behaviors。behaviors 是注册预设的 ID、名称与说明，bindings 是当前皮肤应用用户覆盖后的有效映射；空字符串表示该行为不播放专属反馈。模型动作通过同一个批次接口执行：
+
+```json
+{
+  "action": "perform",
+  "name": "查询到的动作名",
+  "revision": "查询到的激活版本",
+  "durationMs": 2000
+}
+```
+
+名称由当前皮肤注册，没有固定枚举。只在 ready 时接受执行，状态和版本在入队及开始每一步前分别检查。模型切换不重放旧动作；相同 ID 的原批次重试返回已有回执。详细约束见 [模型动作 Skill](../skills/anelfbodied-control/references/control/model-actions.md)。
+
+只修改行为映射不改变模型 revision，不中断 perform。按行为选择动作前查询最新 bindings；只能将非空且存在于 actions 的名称用于 perform。通用控制接口不依赖 Anelf；频道管理工具由业务模块作为 MCP 扩展注册。

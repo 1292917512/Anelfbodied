@@ -1,0 +1,7 @@
+{
+  "vendor/cubism/Core/live2dcubismcore.min.js": "vendor/live2dcubismcore.min.js",
+  "vendor/cubism/Core/LICENSE.md": "vendor/CORE-LICENSE.md",
+  "vendor/cubism/Core/RedistributableFiles.txt": "vendor/CORE-RedistributableFiles.txt",
+  "vendor/cubism/Framework/LICENSE.md": "vendor/FRAMEWORK-LICENSE.md",
+  "vendor/cubism/Shaders/WebGL": "vendor/shaders"
+}

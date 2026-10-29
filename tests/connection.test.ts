@@ -3,9 +3,9 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ConnectionService } from '../src/application/connection';
-import { Settings } from '../src/host/settings';
-import type { ConnectionState } from '../src/integrations/anelf/schema';
+import { ConnectionService } from '../src/integrations/anelf/connection';
+import { Settings } from '../src/integrations/anelf/settings';
+import type { ConnectionState } from '../src/contracts/channel';
 
 class Channel extends EventEmitter {
   status: ConnectionState['status'] = 'offline';

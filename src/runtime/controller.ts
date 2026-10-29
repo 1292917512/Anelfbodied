@@ -5,12 +5,14 @@ import {
   ControlError,
   PROTOCOL,
   terminal,
+  capabilities,
   type Cancel,
   type Command,
   type Receipt,
 } from '../protocol/schema';
 import { Journal, recordKey } from './journal';
-import type { ActionDriver } from './ports';
+import type { ActionDriver, ControlService } from './ports';
+import { ModelRegistry } from './model-registry';
 interface Job {
   owner: string;
   command: Command;
@@ -22,7 +24,7 @@ interface Job {
 }
 
 /** Serializes every transport through one cancellation and receipt boundary. */
-export class Controller extends EventEmitter {
+export class Controller extends EventEmitter implements ControlService {
   private readonly jobs = new Map<string, Job>();
   private readonly queue: Job[] = [];
   private draining = false;
@@ -31,8 +33,12 @@ export class Controller extends EventEmitter {
     private readonly driver: ActionDriver,
     private readonly journal: Journal,
     private readonly now = Date.now,
+    readonly models = new ModelRegistry(),
   ) {
     super();
+  }
+  capabilities() {
+    return { ...capabilities(), model: this.models.snapshot() };
   }
   submit(owner: string, input: unknown): Receipt {
     const command = commandSchema.parse(input);
@@ -57,6 +63,7 @@ export class Controller extends EventEmitter {
         409,
       );
     if (this.jobs.size >= 32) throw new ControlError('queue_full', 'Action queue is full', 429);
+    command.commands.forEach((action) => this.models.validate(action));
     const receipt: Receipt = {
       protocol: PROTOCOL,
       id: command.id,
@@ -180,6 +187,14 @@ export class Controller extends EventEmitter {
           this.publish(job);
           for (const action of job.command.commands) {
             if (job.abort.signal.aborted) break;
+            try {
+              this.models.validate(action);
+            } catch (error) {
+              const detail = error instanceof Error ? error.message : 'Model unavailable';
+              job.receipt.results.push({ outcome: 'failed', detail });
+              this.finish(job, 'failed', detail);
+              break;
+            }
             const result = await this.driver.execute(action, job.abort.signal);
             job.receipt.results.push(result);
             if (result.outcome === 'completed') {

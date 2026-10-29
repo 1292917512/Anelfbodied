@@ -1,101 +1,86 @@
 # AnelfBodied
 
-独立的桌面伙伴客户端。AI 和记忆留在服务端，桌宠负责表达、移动、提问与执行回执。HTTP 消息协议、MCP 和 Anelf 频道接入共用一个执行控制器。
+独立的桌面具身客户端。AI 负责思考，客户端负责表达、移动、交互与真实执行回执。支持 PNG、序列帧、Live2D Cubism 3+；MCP 与 HTTP 消息协议共用执行核心，Anelf 频道作为独立业务接入。
 
-项目官网：[anelf.cn](https://anelf.cn)。
+官网：[anelf.cn](https://anelf.cn)。
 
-## 使用
+## 桌面操作
 
-- 启动后只显示桌宠。单击有触碰反馈，双击打开角色旁的输入气泡；Esc 收起，草稿保留。
-- 拖动调整位置。拖动会取消正在执行的桌宠动作，已完成步骤保留；单击不会中断 AI。
-- 悬停按钮可打开对话记录、连接设置、形象设置。完整历史和执行回执在二级面板查看。
-- 点击停止会同时取消本机动作并向 Anelf 当前会话发送停止请求。后台停止未确认时，界面会保留提示。
-- 关闭二级面板不会退出程序。托盘菜单提供显示、隐藏、切换屏幕、停止和退出。
+- **单击**打开操作轮盘：聊天、形象、连接、对话记录、摸摸和停止。方向键选择，Enter 执行，Esc 收起。
+- **双击**打开角色旁的输入气泡；收起后保留未发送草稿。
+- **拖动**移动角色并接管当前本机动作，保留已完成步骤；拎起和放下分别触发行为。
+- 在头部**来回抚摸**会有触摸反馈，不必打开面板。
+- **形象 → 交互与行为**可给当前皮肤的待机、触摸、拖动、移动、说话和情绪指定动作。缺少专属动作时使用轻量反馈，也可关闭反馈。
+- **停止**同时取消本机动作并向 Anelf 当前会话发送停止请求。未确认的停止会显示错误。
+- 关闭面板不退出程序；托盘提供显示、隐藏、切换屏幕、停止和退出。
 
-默认形象为根据用户参考图设计的银蓝猫耳 Q 版角色，配套同形象应用图标。当前提供 **1 帧站姿**，配合客户端的触碰、移动和情绪反馈。支持自定义静态或序列帧皮肤，详见 [皮肤协议](docs/skins.md) 和 [形象素材说明](docs/character.md)。
+桌宠大小支持 **25%–1000%**，可拖滑块或输入百分比。预览图固定大小，已经打开的编辑面板保持位置和尺寸。屏幕不足时临时适配，保留请求的尺寸配置。
 
-## 开发与打包
+默认角色为银蓝猫耳 Q 版形象，目前有 **1 帧站姿**，由行为组件补充动态反馈。原生 Live2D 文件夹、Live2DViewerEX 的 WPK/LPK 和 Steam 模型库均可导入或引用；模型库按需展开检索，不改写源资源。具体支持范围见[皮肤与模型](docs/skins.md)。
 
-需要 Node.js 24 和 pnpm 11.25.0；桌宠运行不依赖 Python、uv 或 Anelf 的启动器。
+## 接入 AI
+
+连接页默认只显示频道地址、API Token 和连接操作；会话标识、技能名称等位于“更多选项”。填写 Anelf 的 **HTTP API 频道**地址和凭据，不能使用 WebUI 登录信息。
+
+普通频道消息只有话语，动作由关联的 MCP 工具执行。默认技能名为 `anelfbodied-control`，空白输入也使用此默认值。连接后可手动点击“让 AI 安装技能”，展开查看说明与结果；不会在启动或重连时自动发送。
+
+MCP 地址默认 `http://127.0.0.1:46187/mcp`。在“MCP / 消息协议”中复制配置；连接详情包含本机控制 Token。Agent 先调用 `pet_capabilities` 发现当前模型动作与行为映射，再通过 `pet_execute` 执行；`pet_cancel` 取消，`pet_state` 查询回执。所有入口使用同一份去重、队列与取消规则。
+
+- [频道、技能与 MCP 接入](docs/channels.md)
+- [控制协议与回执](docs/protocol.md)
+- [Agent 管理频道配置](docs/mcp-connection.md)
+- [AI 操作 Skill](skills/anelfbodied-control/SKILL.md)
+
+## 本地开发
+
+需要 Node.js 24、pnpm 11.25.0；应用不依赖 Python、uv 或 Anelf 启动器。
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm start
 pnpm check
 pnpm test:e2e
+```
+
+`pnpm start` 编译后直接启动本地应用，功能验证不需要安装包。测试使用隔离数据目录；可选真实模型与 Anelf 频道验证见[开发文档](docs/development.md)。
+
+## 模块与扩展
+
+```text
+通用 HTTP / MCP ──────────┐
+Anelf 业务接入 ───────────┤
+                         ↓ ControlService
+                 执行核心 / 取消 / 回执
+                         ↓ ActionDriver
+                 前端呈现与模型生命周期
+                         ↓ ModelInstance
+                    PNG / Live2D / ...
+
+交互信号 → 行为注册表 → 当前皮肤映射 → 模型动作 / 轻量反馈
+```
+
+- **核心**：`protocol/`、`runtime/`、`model/`、`behavior/`；不引用具体业务、桌面平台或模型组件。
+- **业务接入**：`integrations/anelf/` 集中保存 HTTP/SSE、配置、技能引导、界面及 MCP 扩展工具。
+- **模型组件**：`components/<type>/` 集中实现加载、渲染及资源来源。
+- **行为组件**：`behaviors/<preset>/` 集中定义触发条件、优先级、说明与反馈。
+- **装配与平台**：`composition/` 注册组件；`host/` 处理 Electron、IPC 授权和生命周期。
+
+新增模型或行为只添加自己的目录并在装配处注册，不修改执行核心。详细层级、依赖规则与扩展步骤见[开发架构](docs/development.md)、[前端接口](docs/frontends.md)和[行为扩展](docs/behaviors.md)。Unity 等前端可实现同一呈现接口，目前没有内置 Unity 前端。
+
+## 安装、升级与数据
+
+```sh
 pnpm run pack
 pnpm run dist
 ```
 
-`pnpm run pack` 生成 Windows 目录包 `.build/package/win-unpacked/AnelfBodied.exe`；`pnpm run dist` 生成 `release/AnelfBodied-Setup-<版本>-x64.exe` 安装程序。`release/` 仅保留最新成功构建的单个 Windows x64 安装包；目录包、打包缓存、调试信息和 NSIS 生成文件放在 `.build/`，源码编译结果放在 `dist/`。构建失败不会删除上次成功的安装包，打包不会自动发布。
+| 目录       | 内容                                           |
+| ---------- | ---------------------------------------------- |
+| `dist/`    | 源码编译结果                                   |
+| `.build/`  | 目录包、打包缓存和构建中间文件                 |
+| `release/` | 最新成功构建的单个 Windows x64 安装包          |
+| `data/`    | 当前应用的配置、皮肤、行为映射、日志与有界回执 |
 
-安装程序支持选择目录、桌面与开始菜单快捷方式，以及 Windows 应用列表中的完整卸载。注意使用 `pnpm run pack`，`pnpm pack` 是包管理器的源码归档命令。macOS、Linux 有构建配置，但尚未做真机验证；当前发行目标是 Windows。
+构建不会自动发布。覆盖安装保留数据；卸载默认保留数据，可勾选完整删除。数据保存在可写的安装目录内，不修改 Anelf 数据或外部模型资源。Windows 是当前验证目标；macOS/Linux 尚未真机验证。
 
-程序、文档、示例和数据统一放在安装目录。运行数据保存在 `data/`，日志位于 `data/logs/`，自定义皮肤位于 `data/skins/`。安装目录必须对当前用户可写，程序不会静默退回其他目录保存数据。Anelf Token 使用系统加密；系统加密不可用时只在内存保存。日志保留两份约 256 KB 的文件，磁盘缓存限额为 64 MB。桌宠不读写 Anelf 的本地数据目录。
-
-**覆盖安装保留数据，卸载也默认保留数据。** 卸载时可以勾选删除配置、皮肤、回执、缓存和日志；未勾选时，重装到同一目录即可继续使用。详见 [安装与卸载](docs/installation.md)。
-
-## 连接 Anelf
-
-在悬停工具栏的连接设置中填写 **HTTP API 频道地址**、频道 `api_token`、用户标识和会话标识。WebUI 地址、WebUI 登录密码不是频道凭据。HTTPS 使用正常的证书校验。
-
-频道设置中的“技能名称”可填写该 Anelf 服务已有的 Skill 名称，例如 `anelfbodied-control`。客户端在用户消息的 `/api/chat` 请求中单独传递 `skills: ["anelfbodied-control"]`，Anelf 将其转为内部技能标签，加载正文及关联 MCP 状态。`message` 只传原始话语，不追加标签或协议提示。未填写、仅含空白或旧配置没有此项时，发送时统一使用默认技能 `anelfbodied-control`；读取旧配置不会改写文件。名称最多 64 字符，仅支持小写字母、数字、下划线及非首尾的连字符；不是路径，也不是文件内容。此项仅在频道界面设置，不扩展 MCP 工具。
-
-客户端通过 `/api/chat` 发消息、`/api/chat/stream` 接收 SSE、`/api/sessions/history` 同步历史，通过 `/api/sessions/control` 停止会话。频道回复只作为话语显示，JSON 形状的内容也不会执行动作。Agent 通过 Skill 关联的 MCP 控制桌宠，工具执行与最终文字回复可以在同一轮完成。
-
-首次接入或需要重新核对时，先连接频道，再手动点击“让 AI 安装技能”。展开“说明与安装进度”可查看待发送内容和 Agent 回复。说明包含官方技能来源、当前桌宠的实际 MCP 地址、端口和控制 Token，请求 Agent 缺失时安装 Skill，并通过工具配置 MCP、绑定 Skill。消息会进入目标 Anelf 会话记录；发送成功不代表安装或绑定成功，Agent 需要验证技能、绑定及 MCP 调用后回复“安装完成”，失败则说明原因。连接、启动和自动重连都不会触发发送。此安装请求不带 `skills` 字段，后续普通聊天正常携带技能选择。
-
-保存配置后依次显示“连接中 → 同步历史 → 已连接”。固定状态栏显示当前阶段；配置保存成功不代表已连接。首次连接失败会显示原因并停止尝试，可修改配置或手动重试；等待响应超过 15 秒视为超时，连接和同步均可取消。历史暂时不可用但实时连接正常时，保留连接并显示提示。
-
-已连接的 SSE 中断后自动退避重连，可点击“停止重连”；认证失败、接口地址错误或证书无效时停止重试。无法确认的发送不自动重发。本轮终止帧丢失时，请点击停止同步状态，再继续发送。历史只补充显示，不重播动作。`ask` 的回答由 MCP 执行回执返回，回执不再作为聊天事件发送；界面仍可查看实际执行结果。
-
-## HTTP 与 MCP
-
-本机控制端默认 `http://127.0.0.1:46187`，控制 Token 在连接设置的「MCP / 消息协议」中查看。所有请求都需要 `Authorization: Bearer <Token>`；服务仅监听回环地址，拒绝浏览器跨站请求。
-
-支持 Streamable HTTP MCP：地址为 `/mcp`，工具为 `pet_capabilities`、`pet_execute`、`pet_cancel`、`pet_state`。执行最长可能持续五分钟，调用方应设置适当的工具超时。SDK 的取消信号会传入执行控制器。另提供 `pet_connection_state`、`pet_configure_connection`、`pet_connection_control`，让已认证的 Agent 管理频道设置、连接和停止；详见 [MCP 连接配置](docs/mcp-connection.md)。设置页可直接复制 MCP 客户端配置。
-
-仅支持 stdio 的 MCP 客户端可连接已运行的桌宠：
-
-```json
-{
-  "mcpServers": {
-    "AnelfBodied": {
-      "command": "node",
-      "args": ["E:/ELFProgram/DeskTop_Embodied/dist/host/stdio.js"],
-      "env": {
-        "EMBODIED_URL": "http://127.0.0.1:46187",
-        "EMBODIED_TOKEN": "替换为本机控制 Token"
-      }
-    }
-  }
-}
-```
-
-HTTP 示例（Node.js）：
-
-```js
-const command = {
-  protocol: 'desktop-pet/1',
-  id: crypto.randomUUID(),
-  session: crypto.randomUUID(),
-  expiresAt: Date.now() + 60_000,
-  commands: [
-    { action: 'say', text: '你好，我在。', durationMs: 3000 },
-    { action: 'ask', question: '继续吗？', options: ['继续', '稍后'] },
-  ],
-};
-await fetch('http://127.0.0.1:46187/v1/commands', {
-  method: 'POST',
-  headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify(command),
-});
-```
-
-动作与可靠性边界见 [控制协议](docs/protocol.md)，模块划分见 [开发说明](docs/development.md)，Unity 等前端的接口边界见 [前端扩展](docs/frontends.md)。
-
-## AI 操作 Skill
-
-项目与安装包均提供 [anelfbodied-control](skills/anelfbodied-control/SKILL.md)。将整个 `skills/anelfbodied-control/` 文件夹交给 Agent 的 Skill 加载器，保留 `references/` 的目录层级。入口按 MCP、HTTP、Anelf 频道和表达、移动、问答、连接管理、取消恢复分别引导阅读。
-
-MCP 接入需要提供桌宠设置页的 MCP 配置。Anelf 服务端安装相应 Skill 后，将它绑定到实际桌宠 MCP 服务，再在桌宠频道设置中填写技能名称。关联不等于连接或工具激活，Agent 按任务需要唤醒；详见 [频道与技能绑定](skills/anelfbodied-control/references/access/anelf-channel.md)。客户端不上传或安装服务端技能。服务端需支持 `/api/chat` 的 `skills` 字段；频道已连接不代表技能或 MCP 已就绪。Anelf 只自动加载 `SKILL.md` 正文，关键操作规则已放在入口，分层文档供按需查阅。桌宠 MCP 默认只监听本机，远端 Anelf 需要另行配置可达的受认证连接。
+详见[安装与卸载](docs/installation.md)、[素材说明](docs/character.md)和[第三方声明](THIRD_PARTY_NOTICES.md)。

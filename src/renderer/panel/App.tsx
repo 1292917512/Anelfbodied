@@ -14,9 +14,6 @@ export function App() {
   const [view, setView] = useState<PanelView>('settings');
   const [error, setError] = useState('');
   useEffect(() => {
-    if (snapshot?.connection.status === 'error') setError(snapshot.connection.detail);
-  }, [snapshot?.connection.status, snapshot?.connection.detail]);
-  useEffect(() => {
     void window.embodied
       .snapshot()
       .then(setSnapshot)
@@ -112,7 +109,6 @@ export function App() {
                 ? '我的形象'
                 : '动作足迹'}
         </h1>
-        <span>说话时，双击桌宠就好</span>
       </div>
       {error && (
         <div role="alert" className="alert">
@@ -122,18 +118,18 @@ export function App() {
           </button>
         </div>
       )}
-      {view === 'settings' ? (
+      {view === 'settings' && snapshot.connection.status !== 'offline' && (
         <ConnectionStatus connection={snapshot.connection} />
-      ) : (
-        snapshot.connection.detail && (
-          <div className="connection-detail" role="status">
-            {snapshot.connection.detail}
-          </div>
-        )
       )}
       <div className="detail-scroll">
         {view === 'appearance' ? (
-          <AppearancePanel appearance={snapshot.appearance} run={run} />
+          <AppearancePanel
+            appearance={snapshot.appearance}
+            behaviors={snapshot.behaviors}
+            model={snapshot.model}
+            viewport={snapshot.petViewport}
+            run={run}
+          />
         ) : view === 'settings' ? (
           <SettingsPanel snapshot={snapshot} run={run} />
         ) : view === 'receipts' ? (

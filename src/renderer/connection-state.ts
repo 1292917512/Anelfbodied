@@ -1,4 +1,4 @@
-import type { ConnectionState } from '../integrations/anelf/schema';
+import type { ConnectionState } from '../contracts/channel';
 
 export const connectionLabels: Record<ConnectionState['status'], string> = {
   offline: '未连接',

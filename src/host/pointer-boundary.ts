@@ -1,18 +1,11 @@
 import { screen, type BrowserWindow } from 'electron';
-
-export interface HitRegion {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+import { regionContains, type HitRegion } from '../shared/hit-region';
 
 /** Makes only the pet and its visible controls intercept desktop input. */
 export class PointerBoundary {
   private regions: HitRegion[] = [];
   private captureUntil = 0;
   private ignored = true;
-  private hovered = false;
   constructor(private readonly window: BrowserWindow) {
     const timer = setInterval(() => this.update(), 40);
     timer.unref();
@@ -41,22 +34,11 @@ export class PointerBoundary {
     const x = cursor.x - bounds.x,
       y = cursor.y - bounds.y;
     const hovered =
-      this.window.isVisible() &&
-      this.regions.some(
-        (region) =>
-          x >= region.x &&
-          y >= region.y &&
-          x <= region.x + region.width &&
-          y <= region.y + region.height,
-      );
+      this.window.isVisible() && this.regions.some((region) => regionContains(region, x, y));
     const ignored = !hovered && this.captureUntil < Date.now();
     if (ignored !== this.ignored) {
       this.ignored = ignored;
       this.window.setIgnoreMouseEvents(ignored, { forward: true });
-    }
-    if (hovered !== this.hovered) {
-      this.hovered = hovered;
-      this.window.webContents.send('pet:hover', hovered);
     }
   }
 }

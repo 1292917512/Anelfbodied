@@ -10,61 +10,95 @@
 }
 .pet-anchor {
   position: absolute;
-  width: 140px;
-  height: 155px;
-  pointer-events: auto;
+  pointer-events: none;
 }
 .pet-body {
   background: none !important;
   border: 0;
   padding: 0;
-  width: 140px;
-  height: 140px;
   touch-action: none;
   cursor: grab;
-  animation: bob 4s ease-in-out infinite;
+  pointer-events: auto;
+  transition: none;
 }
 .pet-body:active {
   cursor: grabbing;
+  transform: none;
 }
 .pet-body:focus {
   outline: none;
+}
+.skin-look,
+.skin-frame {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 80%;
+}
+.skin-look {
+  transition:
+    rotate 200ms,
+    scale 140ms;
+}
+.pet-body.pressed .skin-look {
+  scale: 0.98 1.02;
+}
+.skin-frame {
+  filter: drop-shadow(0 7px 6px #0002);
+}
+.pet-body:focus-visible .skin-frame {
+  filter: drop-shadow(0 0 3px #9aab87) drop-shadow(0 7px 6px #0002);
 }
 .pet-body img {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 7px 6px #0002);
   user-select: none;
 }
-.pet-body.happy {
-  animation: happy 0.7s ease-in-out infinite;
+.pet-body .sprite-sheet {
+  transform-origin: 0 0;
 }
-.pet-body.thinking {
-  transform: rotate(-10deg);
+.behavior-mark {
+  position: absolute;
+  right: 12%;
+  top: -8px;
+  font-size: 22px;
+  color: #a39a7f;
+  text-shadow: 0 2px 5px #fff;
+  pointer-events: none;
+  z-index: 2;
+  animation: mark-in 450ms ease-out;
 }
-.pet-body.sleepy {
-  animation: sleep 3s ease-in-out infinite;
-}
-.pet-body.surprised {
-  transform: scale(1.13);
-}
-.walking .pet-body {
-  animation: walk 0.3s ease-in-out infinite;
+.pet-touch-note {
+  position: absolute;
+  translate: -50% 0;
+  width: max-content;
+  max-width: 160px;
+  text-align: center;
+  border: 1px solid #e5e7d9;
+  background: #fffdf5f2;
+  border-radius: 14px;
+  padding: 7px 12px;
+  font-size: 11px;
+  color: #879274;
+  pointer-events: none;
 }
 .pet-bubble {
   position: absolute;
-  bottom: 165px;
   width: 270px;
-  max-height: 340px;
   overflow: auto;
-  border-radius: 20px;
+  pointer-events: auto;
+  z-index: 3;
+  padding: 12px 14px;
+  border-radius: 19px;
   background: #fffefa;
-  border: 1px solid #e2e1d5;
-  box-shadow: 0 6px 24px #1e30251a;
-  padding: 17px;
+  box-shadow: 0 4px 20px #25352112;
+  border: 1px solid #e6e6d9;
+  font-size: 12px;
   line-height: 1.65;
-  font-size: 13px;
+  animation: hint-in 180ms ease-out;
+  scrollbar-width: thin;
 }
 .pet-bubble p {
   margin: 0;
@@ -88,171 +122,6 @@
 .pet-bubble input {
   padding: 7px;
   font-size: 12px;
-}
-.emotion {
-  position: absolute;
-  right: 5px;
-  top: -18px;
-  font-size: 30px;
-  font-weight: 700;
-  color: #78815d;
-  text-shadow: 0 2px 4px white;
-}
-.emotion.sleepy {
-  font-size: 20px;
-}
-@keyframes bob {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-7px);
-  }
-}
-@keyframes happy {
-  0%,
-  100% {
-    transform: rotate(-7deg) translateY(0);
-  }
-  50% {
-    transform: rotate(7deg) translateY(-13px);
-  }
-}
-@keyframes walk {
-  0%,
-  100% {
-    transform: rotate(-5deg);
-  }
-  50% {
-    transform: rotate(5deg) translateY(-6px);
-  }
-}
-@keyframes sleep {
-  0%,
-  100% {
-    transform: rotate(-10deg) scale(0.96);
-  }
-  50% {
-    transform: rotate(-10deg) scale(1);
-  }
-}
-
-.pet-tools {
-  position: absolute;
-  top: 145px;
-  left: 50%;
-  translate: -50% 0;
-  display: flex;
-  gap: 2px;
-  padding: 4px;
-  background: #fffef9f2;
-  border: 1px solid #e9e5da;
-  border-radius: 22px;
-  box-shadow: 0 3px 14px #485c2e12;
-  opacity: 0;
-  pointer-events: auto;
-  transition:
-    opacity 0.18s,
-    transform 0.18s;
-  transform: translateY(-3px);
-}
-.pet-anchor:hover .pet-tools,
-.pet-anchor.is-hovered .pet-tools,
-.pet-anchor.is-typing .pet-tools,
-.pet-tools:focus-within {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
-}
-.pet-tools button {
-  display: grid;
-  place-items: center;
-  width: 29px;
-  height: 28px;
-  border: 0;
-  padding: 5px;
-  background: transparent;
-  color: #9b9e88;
-  border-radius: 50%;
-}
-.pet-tools button:hover {
-  background: #eaf0dd;
-  color: #6c8054;
-}
-.pet-tools svg {
-  width: 15px;
-  height: 15px;
-}
-.pet-tools .pet-stop {
-  color: #ab7b65;
-}
-.pet-body img {
-  transition:
-    rotate 0.2s,
-    scale 0.12s;
-  transform-origin: 50% 75%;
-}
-.pet-body.pressed .skin-frame {
-  scale: 0.91 1.04;
-}
-.pet-body .skin-frame.patted {
-  animation: pat 0.6s cubic-bezier(0.3, 1.5, 0.5, 1);
-}
-.pet-sparks {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 2;
-}
-.pet-sparks i {
-  position: absolute;
-  font-style: normal;
-  color: #a2ad79;
-  font-size: 18px;
-  animation: spark-pop 1.2s ease-out forwards;
-}
-.pet-sparks i:nth-child(1) {
-  left: 12px;
-  top: 12px;
-  rotate: -20deg;
-}
-.pet-sparks i:nth-child(2) {
-  right: 4px;
-  top: 2px;
-  animation-delay: 0.08s;
-  color: #c5a088;
-}
-.pet-sparks i:nth-child(3) {
-  right: 22px;
-  top: -8px;
-  font-size: 12px;
-  animation-delay: 0.14s;
-}
-.pet-touch-note {
-  position: absolute;
-  bottom: 149px;
-  left: 50%;
-  translate: -50% 0;
-  white-space: nowrap;
-  border: 1px solid #e5e7d9;
-  background: #fffdf5f2;
-  border-radius: 14px;
-  padding: 7px 12px;
-  font-size: 11px;
-  color: #879274;
-  box-shadow: 0 3px 12px #45542b10;
-  pointer-events: none;
-  animation: hint-in 0.2s ease-out;
-}
-.pet-bubble {
-  padding: 12px 14px;
-  border-radius: 19px;
-  box-shadow: 0 4px 20px #25352112;
-  border-color: #e6e6d9;
-  font-size: 12px;
-  animation: hint-in 0.18s ease-out;
-  scrollbar-width: thin;
 }
 .bubble-tools {
   display: flex;
@@ -348,67 +217,32 @@
   background: #f1f4e9;
   border-color: #e2e8d5;
 }
-@keyframes pat {
-  0% {
-    transform: scale(1);
-  }
-  30% {
-    transform: translateY(-9px) scale(1.08, 0.95);
-  }
-  60% {
-    transform: translateY(2px) scale(0.97, 1.04);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-@keyframes spark-pop {
-  0% {
-    opacity: 0;
-    transform: translateY(12px) scale(0.3);
-  }
-  25% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-30px) scale(1.15);
-  }
-}
 @keyframes hint-in {
   from {
     opacity: 0;
-    transform: translateY(5px) scale(0.97);
+    transform: translateY(5px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: none;
   }
 }
-
-.skin-frame {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  transform-origin: 50% 75%;
-  transition:
-    rotate 0.2s,
-    scale 0.12s;
-  filter: drop-shadow(0 7px 6px #0002);
+@keyframes mark-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
-
-.pet-body:focus-visible .skin-frame {
-  filter: drop-shadow(0 0 3px #9aab87) drop-shadow(0 7px 6px #0002);
-}
-
-.pet-body .sprite-sheet {
-  filter: none;
-  transition: none;
-  transform-origin: 0 0;
-}
-
-.pet-body[data-animated='true'] {
-  animation: none;
-  transform: none;
+@media (prefers-reduced-motion: reduce) {
+  .skin-look {
+    transition: none;
+  }
+  .pet-bubble,
+  .behavior-mark {
+    animation: none;
+  }
 }

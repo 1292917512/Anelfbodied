@@ -14,7 +14,11 @@ const bridge: DesktopBridge = {
   showPanel: (view = 'settings') => ipcRenderer.send('app:show', view),
   hidePanel: () => ipcRenderer.send('app:hide'),
   setAppearance: (preference) => ipcRenderer.invoke('app:appearance', preference),
+  setBehaviors: (patch) => ipcRenderer.invoke('app:behaviors', patch),
   importSkin: () => ipcRenderer.invoke('app:import-skin'),
+  modelLibrary: (request) => ipcRenderer.invoke('app:model-library', request),
+  previewAction: (name) => ipcRenderer.invoke('app:preview-action', name),
+  reloadModel: () => ipcRenderer.invoke('app:reload-model'),
   removeSkin: (id) => ipcRenderer.invoke('app:remove-skin', id),
   openLocation: (location) => ipcRenderer.invoke('app:open-location', location),
   update: (action) => ipcRenderer.invoke('app:update', action),
@@ -33,13 +37,9 @@ const bridge: DesktopBridge = {
   position: (point) => ipcRenderer.send('pet:position', point),
   capturePet: (enabled) => ipcRenderer.send('pet:capture', enabled),
   hitRegions: (regions) => ipcRenderer.send('pet:regions', regions),
-  onHover: (callback) => {
-    const handler = (_event: Electron.IpcRendererEvent, hovered: boolean) => callback(hovered);
-    ipcRenderer.on('pet:hover', handler);
-    return () => ipcRenderer.removeListener('pet:hover', handler);
-  },
   answer: (id, result) => ipcRenderer.send('pet:result', id, result),
   ready: () => ipcRenderer.send('pet:ready'),
+  modelStatus: (status) => ipcRenderer.send('pet:model-status', status),
   onOrder: (callback) => {
     const handler = (_event: Electron.IpcRendererEvent, order: PresentationOrder) =>
       callback(order);

@@ -8,16 +8,17 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { createHash } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
+import { SkinAssets } from './assets';
+import { parseManifest, type SkinLoader } from '../model/loader';
 import { defaultSkinId } from './builtin';
-import {
-  appearanceSchema,
-  skinSchema,
-  type Appearance,
-  type Skin,
-  type SkinManifest,
-} from './schema';
+import { appearanceSchema, type Appearance, type Skin, type SkinManifest } from '../model/schema';
+import type { ModelReference, ModelSourceProvider } from '../model/source';
+import { z } from 'zod';
+
+const referenceSchema = z
+  .object({ provider: z.string().max(40), path: z.string().max(1024), entry: z.string().max(1024) })
+  .strict();
 
 interface Pack {
   manifest: SkinManifest;
@@ -26,7 +27,7 @@ interface Pack {
 }
 type Probe = (buffer: Buffer) => { width: number; height: number };
 
-/** Validates data-only skin packs and serves only their declared images. */
+/** Stores validated skin packs and serves only their declared assets. */
 export class SkinCatalog {
   private readonly packs = new Map<string, Pack>();
   private selected = { skinId: defaultSkinId, scale: 1 };
@@ -36,8 +37,12 @@ export class SkinCatalog {
     builtins: string,
     data: string,
     private readonly probe: Probe,
+    private readonly loaders: readonly SkinLoader[],
     private readonly report: (message: string) => void = () => {},
+    private readonly sources: readonly ModelSourceProvider[] = [],
   ) {
+    if (new Set(loaders.map((loader) => loader.id)).size !== loaders.length)
+      throw new Error('Duplicate model type');
     this.imported = resolve(data, 'skins');
     this.settings = join(data, 'appearance.json');
     mkdirSync(this.imported, { recursive: true });
@@ -49,9 +54,17 @@ export class SkinCatalog {
         .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
         .slice(0, builtin ? 32 : 16)) {
         try {
-          const pack = this.read(join(root, entry.name), builtin);
+          const directory = join(root, entry.name);
+          const reference = join(directory, 'source.json');
+          const pack =
+            !builtin && existsSync(reference)
+              ? this.linked(this.readReference(reference))
+              : this.read(directory, builtin);
           if (pack.skin.id !== entry.name) throw new Error('Skin directory does not match its id');
-          if (!this.packs.has(pack.skin.id)) this.packs.set(pack.skin.id, pack);
+          if (!this.packs.has(pack.skin.id)) {
+            this.checkCapacity(pack);
+            this.packs.set(pack.skin.id, pack);
+          }
         } catch {
           this.report(`Skipped invalid skin: ${entry.name}`);
         }
@@ -74,6 +87,7 @@ export class SkinCatalog {
     return structuredClone({
       ...this.selected,
       skins: [...this.packs.values()].map((pack) => pack.skin),
+      types: this.loaders.map(({ id, name }) => ({ id, name })),
     });
   }
   current(): { skin: Skin; scale: number } {
@@ -92,9 +106,17 @@ export class SkinCatalog {
   import(directory: string): string {
     if ([...this.packs.values()].filter((pack) => !pack.skin.builtin).length >= 16)
       throw new Error('最多导入 16 套皮肤，请先移除不用的皮肤');
-    const pack = this.read(directory, false);
+    let generated: SkinManifest | undefined;
+    if (!existsSync(join(directory, 'manifest.json'))) {
+      const files = readdirSync(directory);
+      const assets = new SkinAssets(directory, 'import', this.probe);
+      generated = this.loaders.map((loader) => loader.detect?.(files, assets)).find(Boolean);
+      if (!generated) throw new Error('未识别到模型，请选择含 manifest.json 的皮肤文件夹');
+    }
+    const pack = this.read(directory, false, generated);
     if (this.packs.has(pack.skin.id))
       throw new Error('已存在同名 ID 的皮肤，请修改 manifest.json 中的 id');
+    this.checkCapacity(pack);
     const destination = resolve(this.imported, pack.skin.id);
     if (existsSync(destination)) throw new Error('皮肤目录已存在，请更换皮肤 ID');
     const staging = resolve(this.imported, '.import');
@@ -107,7 +129,10 @@ export class SkinCatalog {
     mkdirSync(staging);
     try {
       writeFileSync(join(staging, 'manifest.json'), JSON.stringify(pack.manifest, null, 2));
-      for (const [file, bytes] of pack.assets) writeFileSync(join(staging, file), bytes);
+      for (const [file, bytes] of pack.assets) {
+        mkdirSync(dirname(join(staging, file)), { recursive: true });
+        writeFileSync(join(staging, file), bytes);
+      }
       renameSync(staging, destination);
       this.packs.set(pack.skin.id, pack);
       return pack.skin.id;
@@ -124,60 +149,95 @@ export class SkinCatalog {
     rmSync(directory, { recursive: true, force: true });
     this.packs.delete(id);
   }
-  asset(url: string): Buffer | undefined {
-    const parsed = new URL(url);
-    const file = parsed.pathname.slice(1);
-    return this.packs.get(parsed.hostname)?.assets.get(file);
+  link(reference: ModelReference): string {
+    const pack = this.linked(referenceSchema.parse(reference));
+    const previous = this.packs.get(pack.skin.id);
+    if (previous && !previous.skin.linked) throw new Error('此 ID 已被本地皮肤使用');
+    if (!previous && [...this.packs.values()].filter((pack) => !pack.skin.builtin).length >= 16)
+      throw new Error('最多添加 16 套皮肤，请先移除不用的皮肤');
+    this.checkCapacity(pack);
+    const directory = join(this.imported, pack.skin.id);
+    const existed = existsSync(directory);
+    if (
+      existed &&
+      (lstatSync(directory).isSymbolicLink() || !existsSync(join(directory, 'source.json')))
+    )
+      throw new Error('皮肤目录已存在，不能覆盖');
+    if (!existed) mkdirSync(directory);
+    try {
+      const temp = join(directory, 'source.json.tmp');
+      writeFileSync(temp, JSON.stringify(reference, null, 2));
+      renameSync(temp, join(directory, 'source.json'));
+      this.packs.set(pack.skin.id, pack);
+    } catch (error) {
+      if (!existed) rmSync(directory, { recursive: true, force: true });
+      throw error;
+    }
+    return pack.skin.id;
   }
-  private read(directory: string, builtin: boolean): Pack {
+  private readReference(path: string): ModelReference {
+    if (lstatSync(path).isSymbolicLink() || lstatSync(path).size > 16000)
+      throw new Error('模型引用无效');
+    return referenceSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
+  }
+  private linked(reference: ModelReference): Pack {
+    const provider = this.sources.find((item) => item.id === reference.provider);
+    if (!provider) throw new Error('模型来源未注册');
+    const source = provider.open(reference);
+    return this.load(
+      source.manifest,
+      false,
+      new SkinAssets('', source.manifest.id, this.probe, source.read),
+      true,
+    );
+  }
+  asset(url: string): Buffer | undefined {
+    try {
+      const parsed = new URL(url);
+      const file = decodeURIComponent(parsed.pathname.slice(1));
+      return this.packs.get(parsed.hostname)?.assets.get(file);
+    } catch {
+      return undefined;
+    }
+  }
+  private read(directory: string, builtin: boolean, generated?: unknown): Pack {
+    if (lstatSync(directory).isSymbolicLink()) throw new Error('皮肤目录不能是符号链接');
     const manifestFile = join(directory, 'manifest.json');
-    if (lstatSync(manifestFile).size > 16000 || lstatSync(manifestFile).isSymbolicLink())
+    if (
+      !generated &&
+      (lstatSync(manifestFile).size > 512000 || lstatSync(manifestFile).isSymbolicLink())
+    )
       throw new Error('皮肤配置文件无效');
-    const manifest = skinSchema.parse(JSON.parse(readFileSync(manifestFile, 'utf8')));
+    const manifest = parseManifest(
+      generated ?? JSON.parse(readFileSync(manifestFile, 'utf8')),
+      this.loaders,
+    );
+    return this.load(manifest, builtin, new SkinAssets(directory, manifest.id, this.probe));
+  }
+  private load(manifest: SkinManifest, builtin: boolean, assets: SkinAssets, linked = false): Pack {
+    const loader = this.loaders.find((entry) => entry.id === manifest.type);
+    if (!loader) throw new Error('未注册的模型类型：' + manifest.type);
+    const loaded = loader.load(manifest, assets);
     const skin: Skin = {
       id: manifest.id,
       name: manifest.name,
       author: manifest.author,
       license: manifest.license,
+      type: manifest.type,
       builtin,
-      animations: {} as Skin['animations'],
+      linked,
+      ...loaded,
     };
-    const assets = new Map<string, Buffer>();
-    let bytes = 0;
-    for (const [motion, spec] of Object.entries(manifest.animations)) {
-      if (!assets.has(spec.file)) {
-        const file = join(directory, spec.file),
-          stat = lstatSync(file);
-        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 8_000_000)
-          throw new Error('皮肤图片必须是文件夹内的 PNG 图片');
-        bytes += stat.size;
-        if (bytes > 8_000_000) throw new Error('每套皮肤的图片总量最多 8 MB');
-        assets.set(spec.file, readFileSync(file));
-      }
-      const image = assets.get(spec.file)!;
-      if (image.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a')
-        throw new Error('仅支持 PNG 图片');
-      if (image.length < 24 || image.readUInt32BE(16) * image.readUInt32BE(20) > 16_777_216)
-        throw new Error('图片像素总量超过上限');
-      const size = this.probe(image),
-        rows = Math.ceil(spec.frames / spec.columns);
-      if (
-        spec.columns > spec.frames ||
-        size.width <= 0 ||
-        size.height <= 0 ||
-        size.width > 8192 ||
-        size.height > 8192 ||
-        size.width % spec.columns ||
-        size.height % rows
-      )
-        throw new Error('序列帧的尺寸、列数或帧数不匹配');
-      skin.animations[motion as keyof Skin['animations']] = {
-        ...spec,
-        width: size.width / spec.columns,
-        height: size.height / rows,
-        url: `embodied-skin://${manifest.id}/${spec.file}?v=${createHash('sha256').update(image).digest('hex').slice(0, 12)}`,
-      };
-    }
-    return { manifest, skin, assets };
+    return { manifest, skin, assets: assets.files };
+  }
+  private checkCapacity(pack: Pack): void {
+    const bytes = (item: Pack) =>
+      [...item.assets.values()].reduce((sum, asset) => sum + asset.length, 0);
+    if (
+      [...this.packs.values()]
+        .filter((item) => item.skin.id !== pack.skin.id)
+        .reduce((sum, item) => sum + bytes(item), bytes(pack)) > 256_000_000
+    )
+      throw new Error('已加载皮肤资源总量最多 256 MB，请先移除不用的皮肤');
   }
 }

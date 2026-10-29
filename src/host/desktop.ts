@@ -1,5 +1,5 @@
 import { BrowserWindow, Menu, screen, dialog } from 'electron';
-import { petAnchor, panelAnchor, type Point } from '../shared/geometry';
+import { petAnchor, panelAnchor, petDisplaySize, type Point } from '../shared/geometry';
 import type { PanelView } from '../contracts/client';
 import { productName } from '../shared/product';
 
@@ -47,6 +47,10 @@ export function createDesktop(
   let scale = 1;
   const showPanel = (view?: PanelView) => {
     if (view) panel.webContents.send('app:view', view);
+    if (panel.isVisible()) {
+      panel.focus();
+      return;
+    }
     const area = pet.getBounds();
     panel.setMinimumSize(Math.min(360, area.width - 24), Math.min(460, area.height - 24));
     const current = panel.getBounds();
@@ -63,7 +67,7 @@ export function createDesktop(
         x: area.x + anchor.x,
         y: area.y + anchor.y,
       },
-      140 * scale,
+      petDisplaySize(area, scale).diameter,
     );
     panel.setPosition(location.x, location.y);
     panel.show();
@@ -72,7 +76,19 @@ export function createDesktop(
   const updateDisplay = () => {
     if (pet.isDestroyed()) return;
     pet.setBounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea);
-    if (panel.isVisible()) showPanel();
+    if (panel.isVisible()) {
+      const area = screen.getDisplayMatching(panel.getBounds()).workArea;
+      const bounds = panel.getBounds();
+      const width = Math.min(bounds.width, area.width - 24);
+      const height = Math.min(bounds.height, area.height - 24);
+      panel.setMinimumSize(Math.min(360, width), Math.min(460, height));
+      panel.setBounds({
+        width,
+        height,
+        x: Math.max(area.x + 12, Math.min(bounds.x, area.x + area.width - width - 12)),
+        y: Math.max(area.y + 12, Math.min(bounds.y, area.y + area.height - height - 12)),
+      });
+    }
   };
   for (const window of [pet, panel]) {
     const role = window === pet ? 'pet' : 'panel';
@@ -115,7 +131,6 @@ export function createDesktop(
     updateDisplay,
     scale: (value: number) => {
       scale = value;
-      if (panel.isVisible()) showPanel();
     },
     position: (point: Point) => {
       position = point;

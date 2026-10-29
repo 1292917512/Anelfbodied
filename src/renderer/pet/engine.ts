@@ -9,6 +9,7 @@ export interface PetState {
   question: string;
   options: string[];
   moving: boolean;
+  performing: boolean;
 }
 const initial = (): PetState => ({
   x: 0.78,
@@ -18,6 +19,7 @@ const initial = (): PetState => ({
   question: '',
   options: [],
   moving: false,
+  performing: false,
 });
 
 /** A single renderer task owns its timers, animation and answer callback. */
@@ -27,6 +29,10 @@ export class PetEngine {
   constructor(
     private readonly changed: (state: PetState) => void,
     private readonly reply: (id: string, result: ActionResult) => void,
+    private readonly model?: (
+      action: Extract<Action, { action: 'perform' }>,
+      signal: AbortSignal,
+    ) => Promise<ActionResult>,
   ) {}
   dispatch(order: PresentationOrder): void {
     if (order.type === 'cancel') {
@@ -53,6 +59,36 @@ export class PetEngine {
     this.changed({ ...this.state, options: [...this.state.options] });
   }
   private run(id: string, action: Action): void {
+    this.state.performing = action.action === 'perform';
+    if (action.action === 'perform') {
+      this.emit();
+      const abort = new AbortController();
+      let requested: ActionResult | undefined;
+      this.current = {
+        id,
+        finish: (result) => {
+          requested = result;
+          abort.abort();
+        },
+      };
+      void (
+        this.model?.(action, abort.signal) ??
+        Promise.resolve<ActionResult>({ outcome: 'failed', detail: 'No model renderer attached' })
+      )
+        .catch((error: unknown): ActionResult => ({
+          outcome: 'failed',
+          detail: (error instanceof Error ? error.message : String(error)).slice(0, 500),
+        }))
+        .then((result) => {
+          if (this.current?.id === id) {
+            this.current = undefined;
+            this.state.performing = false;
+            this.emit();
+          }
+          this.reply(id, requested ?? result);
+        });
+      return;
+    }
     let frame = 0;
     const finish = (result: ActionResult) => {
       if (this.current?.id !== id) return;

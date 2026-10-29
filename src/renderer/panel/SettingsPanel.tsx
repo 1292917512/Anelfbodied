@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Snapshot } from '../../contracts/client';
 import { UpdatePanel } from './UpdatePanel';
-import { ConnectionForm } from './ConnectionForm';
+import { ConnectionForm } from '../../integrations/anelf/ui/ConnectionForm';
 import { McpPanel } from './McpPanel';
 
 export function SettingsPanel({
@@ -28,14 +28,14 @@ export function SettingsPanel({
       <div hidden={source !== 'mcp'}>
         <McpPanel url={snapshot.apiUrl} token={snapshot.apiToken} run={run} />
       </div>
-      <details className="storage-details">
-        <summary>存储位置</summary>
+      <details className="disclosure">
+        <summary>应用与更新</summary>
         <p className="hint">{snapshot.dataDirectory}</p>
         <button onClick={() => run(() => window.embodied.openLocation('data'))}>
           打开数据目录
         </button>
+        <UpdatePanel state={snapshot.update} run={run} />
       </details>
-      <UpdatePanel state={snapshot.update} run={run} />
     </div>
   );
 }

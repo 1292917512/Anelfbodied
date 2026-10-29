@@ -2,15 +2,15 @@ import { randomUUID } from 'node:crypto';
 import type { Express } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import type { Controller } from '../runtime/controller';
+import type { ControlService } from '../runtime/ports';
 import { createMcp } from './mcp';
-import type { ConnectionControl } from '../contracts/connection';
+import type { McpExtension } from './mcp-extension';
 
 /** Retains bounded MCP sessions so SDK cancellation reaches the original tool call. */
 export function mountMcp(
   app: Express,
-  controller: Controller,
-  connection?: ConnectionControl,
+  controller: ControlService,
+  extensions: readonly McpExtension[] = [],
 ): () => Promise<void> {
   const sessions = new Map<
     string,
@@ -57,7 +57,7 @@ export function mountMcp(
       return;
     }
     initializing++;
-    const mcp = createMcp(controller, 'external', connection);
+    const mcp = createMcp(controller, 'external', extensions);
     const session = {
       transport: new StreamableHTTPServerTransport({
         sessionIdGenerator: randomUUID,

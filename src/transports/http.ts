@@ -2,10 +2,10 @@ import express from 'express';
 import { createServer, type Server } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { ZodError } from 'zod';
-import { capabilities, cancelSchema, ControlError } from '../protocol/schema';
-import type { Controller } from '../runtime/controller';
+import { cancelSchema, ControlError } from '../protocol/schema';
+import type { ControlService } from '../runtime/ports';
 import { mountMcp } from './mcp-http';
-import type { ConnectionControl } from '../contracts/connection';
+import type { McpExtension } from './mcp-extension';
 
 export interface LocalServer {
   server: Server;
@@ -13,10 +13,10 @@ export interface LocalServer {
   close(): Promise<void>;
 }
 export async function startServer(
-  controller: Controller,
+  controller: ControlService,
   token: string,
   port = 0,
-  connection?: ConnectionControl,
+  extensions: readonly McpExtension[] = [],
 ): Promise<LocalServer> {
   if (token.length < 24) throw new Error('Local control token must contain at least 24 characters');
   const app = express();
@@ -37,7 +37,7 @@ export async function startServer(
   });
   app.use(express.json({ limit: '64kb' }));
   app.get('/v1/capabilities', (_req, res) => {
-    res.json(capabilities());
+    res.json(controller.capabilities());
   });
   app.post('/v1/commands', (req, res) => {
     res.status(202).json(controller.submit('external', req.body));
@@ -53,7 +53,7 @@ export async function startServer(
   app.post('/v1/cancel', async (req, res) => {
     res.json({ receipts: await controller.cancel('external', cancelSchema.parse(req.body)) });
   });
-  const closeMcp = mountMcp(app, controller, connection);
+  const closeMcp = mountMcp(app, controller, extensions);
   app.use(
     (error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
       void _next;

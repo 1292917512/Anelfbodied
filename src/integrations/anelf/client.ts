@@ -2,8 +2,9 @@ import { EventEmitter } from 'node:events';
 import { randomUUID, createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { PROTOCOL } from '../../protocol/schema';
-import type { Controller } from '../../runtime/controller';
-import { connectionSchema, type ConnectionConfig, type ConnectionState } from './schema';
+import type { ControlService } from '../../runtime/ports';
+import { connectionSchema, type ConnectionConfig } from './schema';
+import type { ConnectionState } from '../../contracts/channel';
 import { consumeSse } from './sse';
 import { checkStreamResponse, connectionFailure, ConnectionFailure } from './connection-error';
 import { channelGuide } from './guide';
@@ -27,7 +28,7 @@ export class AnelfClient extends EventEmitter {
     busy: false,
   };
   constructor(
-    private readonly controller: Controller,
+    private readonly controller: ControlService,
     private readonly fetcher: typeof fetch = fetch,
   ) {
     super();

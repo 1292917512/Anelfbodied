@@ -1,37 +1,12 @@
-import { useEffect, useState } from 'react';
-import type { Motion, Skin } from '../../skins/schema';
+import { useState } from 'react';
+import type { Skin } from '../../model/schema';
 import { defaultSkinImage } from '../../skins/builtin';
 
 /** Renders a static image or a regular sprite grid without executing skin code. */
-export function SkinSprite({
-  skin,
-  motion = 'idle',
-  animate = true,
-}: {
-  skin?: Skin;
-  motion?: Motion;
-  animate?: boolean;
-}) {
-  const sprite = skin?.animations[motion] ?? skin?.animations.idle;
-  const [frame, setFrame] = useState(0);
+export function SkinSprite({ skin }: { skin?: Skin }) {
+  const sprite = skin?.preview;
   const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    setFrame(0);
-    setFailed(false);
-    if (
-      !sprite ||
-      !animate ||
-      sprite.frames === 1 ||
-      matchMedia('(prefers-reduced-motion: reduce)').matches
-    )
-      return;
-    const start = performance.now();
-    const timer = setInterval(
-      () => setFrame(Math.floor(((performance.now() - start) * sprite.fps) / 1000) % sprite.frames),
-      1000 / sprite.fps,
-    );
-    return () => clearInterval(timer);
-  }, [sprite?.url, sprite?.frames, sprite?.fps, motion, animate]);
+  if (skin && !sprite) return <span className="model-type-mark">{skin.type}</span>;
   if (!sprite || failed)
     return (
       <img className="skin-fallback" src={`./${defaultSkinImage}`} alt={skin?.name ?? '桌宠形象'} />
@@ -39,7 +14,7 @@ export function SkinSprite({
   const columns = sprite.columns,
     rows = Math.ceil(sprite.frames / columns),
     ratio = sprite.width / sprite.height;
-  const current = frame % sprite.frames;
+  const current = 0;
   return (
     <span
       className="sprite-viewport"

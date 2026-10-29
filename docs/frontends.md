@@ -4,7 +4,7 @@
 
 ```text
 HTTP / MCP / Anelf 频道
-          ↓
+          ↓ ControlService
 Controller ── Journal
           ↓ ActionDriver
 PresentationDriver
@@ -12,6 +12,8 @@ PresentationDriver
 Electron IPC / 未来的 Unity 通信适配器
           ↓
 React PetEngine / 未来的 Unity 动作执行器
+          ↓ ModelSession → ModelInstance
+PNG / Live2D / 其他已注册组件
 ```
 
 ## 接口职责
@@ -26,6 +28,8 @@ React PetEngine / 未来的 Unity 动作执行器
 - `renderer/pet/engine.ts`：当前二维前端的动作实现，不读取凭据或管理通信连接。
 
 ESLint 限制核心层引用桌面或通信实现，也限制 React 页面直接引用主进程和运行时。
+
+Anelf HTTP/SSE、配置、技能和连接工具集中在 integrations/anelf/，通用 HTTP/MCP 传输层没有 Anelf 依赖。产品通过 McpExtension 注册业务工具，未来更换业务接入无需修改 ControlService。contracts/client.ts 是桌面产品组合契约，不属于可移植执行核心。
 
 ## Unity 接入步骤
 
@@ -57,4 +61,46 @@ ESLint 限制核心层引用桌面或通信实现，也限制 React 页面直接
 
 ## 资源边界
 
-当前 PNG 皮肤协议属于二维资源适配层。Unity 可为相同动作名绑定 Animator、模型和音频，无需把 Unity 模型塞进 PNG 皮肤格式。新增动作时必须同时更新协议、能力声明、目标前端实现和测试，不能把暂不支持的动作伪装为完成。
+src/model/ 只定义模型契约、注册表和生命周期，不引用 PNG、Live2D、Electron 或 React。src/components/png/ 与 src/components/live2d/ 分别包含自己的配置、资源加载和渲染；互不引用。src/composition/ 是产品装配入口，注入主进程的 SkinLoader、前端的 ModelRenderer 以及组件构建资源。新增模型类型时不修改协议、控制器、MCP 或公共注册表。
+
+SkinLoader 只处理数据包并返回规范化模型、动作和行为绑定。ModelRenderer.mount 加载并返回 ModelInstance；play 完成资源准备并开始展示，stop 必须同步停止效果，dispose 必须释放资源。方法抛错、加载超时、显卡上下文丢失均进入 error 状态，不发布 ready。宿主只在资源和待机动作都可用后报告就绪。
+
+ModelInstance.hitMask 返回当前画面的不透明区域，坐标覆盖整个模型容器（包含留白），未就绪或已释放时返回 undefined。掩码最大为 256 × 256，按行排列，每个采样点占一位（低位在前）。PNG 按当前帧及宽高比生成掩码；Live2D 在绘制后读取透明度，最多每 80 ms 更新一次，未使用命中接口的预览停止采样。共用的 alphaSampler 排除透明度低于 32/255 的像素，不包含 CSS 阴影。
+
+前端通过三个定位点取得模型的实际变换，将相同掩码用于鼠标手势和宿主穿透判断，因此缩放、旋转和行为动画不扩大点击区域。气泡、轮盘以及加载错误提示使用各自的控件区域。拖拽必须从模型可见部分开始；开始后保留指针捕获，直到释放、取消或窗口失焦。新增模型组件只需提供掩码，不必修改消息层、MCP 或鼠标处理器。
+
+ModelSession 负责当前激活版本、展示时段、取消、待机恢复和释放。ModelRegistry 在统一控制层再次校验版本、就绪状态和动作名称。换肤生成新的 revision；重复指令仍先按原始内容去重，队列里尚未执行的旧模型动作会失败。模型动作通过 perform 进入同一条队列，不另外维护执行状态。
+
+行为定义位于 behavior/，具体预设位于 behaviors/<name>/，由 composition/behaviors.ts 注入。ModelSession.updateBindings 支持就地修改行为映射，不重新挂载模型；当前 perform 结束后恢复最新映射。前端通过适配器将通用反馈转为 DOM 动画，模型组件不需要了解鼠标、轮盘或 Anelf。Unity 可复用行为语义和映射，提供自己的反馈实现。详见[行为扩展](behaviors.md)。
+
+扩展入口：
+
+1. 在 src/components/<type>/ 实现 loader.ts 和 renderer.ts，将本组件的 schema、资源及辅助实现放在同目录。
+2. 分别在 src/composition/skin-loaders.ts 和 model-renderers.ts 注册。模型类型选项来自加载器注册表。
+3. 有额外构建资源时，在组件目录声明 assets.json，并加入 src/composition/model-assets.json；构建脚本负责通用复制，不识别具体模型类型。
+4. 按接口验证加载失败、取消、释放、重复调用与切换。ESLint 和架构测试会检查依赖方向。
+
+Unity 可实现独立的 PresentationChannel/ActionDriver；不需要依赖浏览器的 DOM 组件接口。它为自己的模型发布同样的动作描述与 revision，遵循相同的 perform、取消和回执协议。
+
+SDK 文件独立存放于 vendor/cubism/，由 Live2D 组件引用。第三方许可证与来源摘要在那里保留；本地测试角色不进入产品构建。
+
+## 模型来源接口
+
+```text
+外观界面 → host/appearance.ts → skins/library.ts
+                                  ↓ ModelSourceProvider
+                          components/live2d/library/
+                          Steam 发现 / ZIP 索引 / LPK 解码 / 数据规范化
+                                  ↓ ModelSource（manifest + read）
+                             skins/catalog.ts → SkinLoader
+                                  ↓
+                      已注册皮肤与动态动作 → 公共控制接口
+```
+
+- src/model/source.ts 定义来源、候选项、只读资源和模型库快照，不包含 Steam 或压缩包逻辑。
+- src/skins/library.ts 负责来源配置、检索合并和去重；src/skins/catalog.ts 负责引用持久化、校验和资源生命周期。
+- src/components/live2d/library/ 集中实现 Steam 位置发现、文件浏览、WPK/LPK 读取和 ViewerEX 数据适配；audio.ts 管理语音的开始、取消与释放。
+- src/composition/model-sources.ts 注入来源实现。其他组件添加自己的来源适配器即可，不需要改公共目录服务、MCP 或消息协议。
+- src/host/appearance.ts 仅负责可信界面 IPC、系统选择器和服务编排。src/renderer/panel/ModelLibraryPanel.tsx 只消费通用模型库契约。
+
+资源库浏览不会预先加载所有纹理，使用时才读取并校验。模型包不解压到磁盘，应用只保留受限内存快照与小型来源引用；切换动作名称通过现有注册表公开给 MCP。

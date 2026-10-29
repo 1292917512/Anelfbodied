@@ -16,32 +16,45 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
+import { pointerRegionsSchema } from '../contracts/pointer';
 import { z } from 'zod';
 import { Controller } from '../runtime/controller';
 import { Journal } from '../runtime/journal';
 import { startServer } from '../transports/http';
 import { AnelfClient } from '../integrations/anelf/client';
-import { Settings } from './settings';
+import { Settings } from '../integrations/anelf/settings';
 import { createRendererDriver } from './renderer-driver';
 import type { Snapshot } from '../contracts/client';
 import { diagnostics } from './diagnostics';
 import { createDesktop } from './desktop';
+import { skinLoaders } from '../composition/skin-loaders';
 import { SkinCatalog } from '../skins/catalog';
+import { ModelLibrary } from '../skins/library';
+import { modelSources } from '../composition/model-sources';
+import { registerAppearance } from './appearance';
 import { PointerBoundary } from './pointer-boundary';
 import { prepareStorage } from './storage';
 import { Updater } from '../updates/updater';
 import { GitHubReleases } from '../updates/source';
 import { installUpdate } from './install-update';
 import { productName } from '../shared/product';
-import { ConnectionService } from '../application/connection';
+import { ConnectionService } from '../integrations/anelf/connection';
 import { applicationIcon } from '../skins/builtin';
 import { mcpConfiguration } from '../shared/mcp-configuration';
+import { modelStatusSchema } from '../protocol/model';
+import { behaviors as behaviorRegistry } from '../composition/behaviors';
+import { BehaviorPreferences } from '../skins/behavior-settings';
+import { anelfMcp } from '../integrations/anelf/mcp';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'embodied-skin', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  {
+    scheme: 'embodied-skin',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+  },
 ]);
 app.setName(productName);
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 const installation = app.isPackaged ? dirname(app.getPath('exe')) : app.getAppPath();
 const storage = (() => {
   try {
@@ -92,13 +105,33 @@ async function start(): Promise<void> {
     join(directory, '../renderer/skins'),
     data,
     (buffer) => nativeImage.createFromBuffer(buffer).getSize(),
+    skinLoaders,
     (message) => log('skin-warning', message),
+    modelSources,
   );
+  const library = new ModelLibrary(join(data, 'model-library.json'), modelSources);
+  const behaviors = new BehaviorPreferences(
+    join(data, 'behaviors.json'),
+    behaviorRegistry,
+    (message) => log('behavior-warning', message),
+  );
+  const currentAppearance = () => {
+    const { skin, scale } = skins.current();
+    return { skin: behaviors.resolve(skin), scale };
+  };
   protocol.handle('embodied-skin', (request) => {
     const bytes = skins.asset(request.url);
     return bytes
       ? new Response(new Uint8Array(bytes), {
-          headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=3600' },
+          headers: {
+            'Content-Type': new URL(request.url).pathname.endsWith('.png')
+              ? 'image/png'
+              : new URL(request.url).pathname.endsWith('.json')
+                ? 'application/json'
+                : 'application/octet-stream',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-cache',
+          },
         })
       : new Response(null, { status: 404 });
   });
@@ -125,6 +158,22 @@ async function start(): Promise<void> {
   const pointer = new PointerBoundary(pet);
   const driver = createRendererDriver(petContents);
   const controller = new Controller(driver, new Journal(join(data, 'receipts.json')));
+  const activateModel = () => {
+    const skin = currentAppearance().skin;
+    controller.models.activate({
+      skinId: skin.id,
+      name: skin.name,
+      type: skin.type,
+      actions: skin.actions,
+      bindings: skin.bindings,
+      behaviors: behaviorRegistry.list(),
+    });
+  };
+  activateModel();
+  petContents.on('render-process-gone', () =>
+    controller.models.unavailable('Renderer process exited'),
+  );
+  petContents.on('did-start-loading', activateModel);
   const anelf = new AnelfClient(controller);
   const connection = new ConnectionService(settings, anelf);
   const tokenFile = join(data, 'control-token');
@@ -138,7 +187,7 @@ async function start(): Promise<void> {
     .min(0)
     .max(65535)
     .parse(process.env.EMBODIED_PORT ?? 46187);
-  const local = await startServer(controller, apiToken, port, connection);
+  const local = await startServer(controller, apiToken, port, [anelfMcp(connection)]);
   const snapshot = (): Snapshot => ({
     connection: anelf.snapshot(),
     receipts: controller.list(),
@@ -147,7 +196,13 @@ async function start(): Promise<void> {
     connectionUpdating: connection.updating,
     apiUrl: local.url,
     apiToken,
-    appearance: skins.snapshot(),
+    appearance: {
+      ...skins.snapshot(),
+      skins: skins.snapshot().skins.map((skin) => behaviors.resolve(skin)),
+    },
+    behaviors: behaviors.snapshot(skins.current().skin),
+    petViewport: { width: pet.getBounds().width, height: pet.getBounds().height },
+    model: controller.models.snapshot(),
     dataDirectory: storage.data,
     update: updater.snapshot(),
     secureStorage:
@@ -155,6 +210,7 @@ async function start(): Promise<void> {
       (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
   });
   const publish = () => {
+    if (quitting) return;
     const state = snapshot();
     if (!panel.isDestroyed()) panelContents.send('app:state', state);
     if (!pet.isDestroyed()) petContents.send('pet:state', companion(state));
@@ -166,14 +222,16 @@ async function start(): Promise<void> {
       detail,
       draft,
       busy,
-      appearance: skins.current(),
+      appearance: { ...currentAppearance(), revision: controller.models.snapshot()!.revision },
       active: state.receipts.some((receipt) => ['accepted', 'running'].includes(receipt.status)),
     };
   };
   controller.on('receipt', publish);
+  pet.on('resize', publish);
   anelf.on('state', publish);
   connection.on('state', publish);
   updater.on('state', publish);
+  controller.models.on('change', publish);
   const ensurePanel = (event: IpcMainInvokeEvent) => {
     if (event.sender !== panelContents || event.senderFrame !== panelContents.mainFrame)
       throw new Error('Untrusted renderer');
@@ -221,24 +279,17 @@ async function start(): Promise<void> {
   });
   handle('app:stop', stop, true);
   handle('pet:snapshot', () => companion(snapshot()), true);
-  handle('app:appearance', (input) => {
-    skins.select(input);
-    desktop.scale(skins.current().scale);
-    publish();
-  });
-  handle('app:import-skin', async () => {
-    const picked = await dialog.showOpenDialog(panel, {
-      title: '选择含 manifest.json 的皮肤文件夹',
-      properties: ['openDirectory'],
-    });
-    if (picked.canceled || !picked.filePaths[0]) return;
-    const skinId = skins.import(picked.filePaths[0]);
-    skins.select({ skinId, scale: skins.current().scale });
-    publish();
-  });
-  handle('app:remove-skin', (input) => {
-    skins.remove(z.string().parse(input));
-    publish();
+  registerAppearance(handle, {
+    panel,
+    skins,
+    behaviors,
+    bindingsChanged: (bindings) => controller.models.bindings(bindings),
+    library,
+    sources: modelSources,
+    control: controller,
+    activate: activateModel,
+    publish,
+    scale: (value) => desktop.scale(value),
   });
   handle('app:open-location', async (input) => {
     const location = z.enum(['data', 'skins', 'skin-guide']).parse(input);
@@ -290,23 +341,18 @@ async function start(): Promise<void> {
   listen('pet:capture', (event, enabled: unknown) => {
     if (event.sender === petContents && typeof enabled === 'boolean') pointer.capture(enabled);
   });
-  const regionSchema = z
-    .array(
-      z.object({
-        x: z.number().min(-1000).max(100000),
-        y: z.number().min(-1000).max(100000),
-        width: z.number().nonnegative().max(100000),
-        height: z.number().nonnegative().max(100000),
-      }),
-    )
-    .max(4);
   listen('pet:regions', (event, input: unknown) => {
     if (event.sender !== petContents) return;
-    const regions = regionSchema.safeParse(input);
+    const regions = pointerRegionsSchema.safeParse(input);
     if (regions.success) pointer.setRegions(regions.data);
   });
   listen('pet:ready', (event) => {
     if (event.sender === petContents) driver.ready();
+  });
+  listen('pet:model-status', (event, input) => {
+    if (event.sender !== petContents || event.senderFrame !== petContents.mainFrame) return;
+    const status = modelStatusSchema.safeParse(input);
+    if (status.success) controller.models.status(status.data);
   });
   ipcMain.on('pet:result', (event, id: unknown, result: unknown) => {
     if (event.sender === petContents && typeof id === 'string') driver.acknowledge(id, result);

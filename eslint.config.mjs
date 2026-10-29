@@ -4,6 +4,7 @@ export default tseslint.config(
   {
     ignores: [
       'dist/**',
+      'vendor/**',
       '.build/**',
       'release/**',
       'node_modules/**',
@@ -15,7 +16,12 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['src/runtime/**/*.ts', 'src/protocol/**/*.ts'],
+    files: [
+      'src/model/**/*.ts',
+      'src/runtime/**/*.ts',
+      'src/protocol/**/*.ts',
+      'src/behavior/**/*.ts',
+    ],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -24,11 +30,44 @@ export default tseslint.config(
             'electron',
             'react',
             'react-dom/*',
-            '../host/*',
-            '../renderer/*',
-            '../transports/*',
-            '../integrations/*',
-            '../contracts/*',
+            '**/host/*',
+            '**/renderer/*',
+            '**/transports/*',
+            '**/integrations/*',
+            '**/contracts/*',
+            '**/components/*',
+            '**/behaviors/*',
+            '**/composition/*',
+            '**/vendor/*',
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/transports/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: ['**/integrations/*', '**/host/*', '**/renderer/*', '**/composition/*'] },
+      ],
+    },
+  },
+  {
+    files: ['src/components/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            'electron',
+            'react',
+            '**/host/*',
+            '**/transports/*',
+            '**/runtime/*',
+            '**/composition/*',
+            '**/integrations/*',
+            '**/renderer/*',
           ],
         },
       ],

@@ -16,7 +16,8 @@ body {
 }
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 button {
@@ -45,6 +46,62 @@ input:focus-visible,
 textarea:focus-visible {
   outline: 2px solid #9aab87;
   outline-offset: 2px;
+}
+select:focus-visible {
+  outline: 2px solid #9aab87;
+  outline-offset: 2px;
+}
+summary {
+  cursor: pointer;
+}
+.disclosure {
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.disclosure > summary,
+.model-library > summary {
+  color: var(--ink);
+  line-height: 1.5;
+}
+.disclosure > summary small,
+.model-library > summary small {
+  color: var(--muted);
+  font-size: 10px;
+  margin-left: 8px;
+}
+.disclosure[open] > summary {
+  margin-bottom: 12px;
+}
+.connection-advanced {
+  margin-top: 16px;
+  padding-bottom: 0;
+}
+.behavior-mappings {
+  display: grid;
+  gap: 14px;
+}
+.behavior-mappings label {
+  display: grid;
+  grid-template-columns: minmax(86px, 0.85fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+.behavior-mappings small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.behavior-mappings select {
+  width: 100%;
+  padding: 9px 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--paper);
+  font-size: 11px;
 }
 input,
 textarea {
@@ -123,23 +180,8 @@ svg {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pet-body {
-    animation: none !important;
-  }
   * {
     scroll-behavior: auto !important;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pet-body .skin-frame.patted,
-  .pet-sparks i,
-  .pet-touch-note,
-  .pet-bubble {
-    animation: none;
-  }
-  .pet-body img {
-    transition: none;
   }
 }
 

@@ -1,9 +1,25 @@
 import type { ActionResult, Receipt } from '../protocol/schema';
+import type { HitRegion } from '../shared/hit-region';
 import type { PresentationOrder } from '../protocol/presentation';
-import type { ConnectionState } from '../integrations/anelf/schema';
-import type { SettingsView, ConfigureConnection, ConnectionOverview } from './connection';
-import type { Appearance, Skin } from '../skins/schema';
+import type { ConnectionState } from './channel';
+import type {
+  SettingsView,
+  ConfigureConnection,
+  ConnectionOverview,
+} from '../integrations/anelf/contracts';
+import type { Appearance, Skin } from '../model/schema';
 import type { UpdateState } from './update';
+import type { ModelCapabilities } from '../protocol/model';
+import type { ModelLibrarySnapshot } from '../model/source';
+import type { Size } from '../shared/geometry';
+import type { BehaviorSettings, BindingPatch } from '../behavior/settings';
+
+export interface ModelLibraryRequest {
+  action: 'list' | 'refresh' | 'discover' | 'add-folder' | 'add-file' | 'remove' | 'use';
+  provider?: string;
+  path?: string;
+  id?: string;
+}
 
 export interface Snapshot {
   connection: ConnectionState;
@@ -15,6 +31,9 @@ export interface Snapshot {
   apiToken: string;
   secureStorage: boolean;
   appearance: Appearance;
+  behaviors: BehaviorSettings;
+  petViewport: Size;
+  model?: ModelCapabilities;
   dataDirectory: string;
   update: UpdateState;
 }
@@ -24,7 +43,7 @@ export interface CompanionState extends Pick<
   'status' | 'detail' | 'draft' | 'busy'
 > {
   active: boolean;
-  appearance?: { skin: Skin; scale: number };
+  appearance?: { skin: Skin; scale: number; revision: string };
 }
 export interface DesktopBridge {
   snapshot(): Promise<Snapshot>;
@@ -42,16 +61,20 @@ export interface DesktopBridge {
   onCompanion(callback: (state: CompanionState) => void): () => void;
   onView(callback: (view: PanelView) => void): () => void;
   setAppearance(preference: { skinId: string; scale: number }): Promise<void>;
+  setBehaviors(patch: BindingPatch): Promise<void>;
   importSkin(): Promise<void>;
+  modelLibrary(request: ModelLibraryRequest): Promise<ModelLibrarySnapshot>;
+  previewAction(name: string): Promise<void>;
+  reloadModel(): Promise<void>;
   removeSkin(id: string): Promise<void>;
   openLocation(location: 'data' | 'skins' | 'skin-guide'): Promise<void>;
   update(action: 'check' | 'download' | 'cancel' | 'install'): Promise<void>;
   position(point: { x: number; y: number }): void;
   capturePet(enabled: boolean): void;
-  hitRegions(regions: { x: number; y: number; width: number; height: number }[]): void;
-  onHover(callback: (hovered: boolean) => void): () => void;
+  hitRegions(regions: HitRegion[]): void;
   answer(id: string, result: ActionResult): void;
   ready(): void;
+  modelStatus(status: Pick<ModelCapabilities, 'revision' | 'status' | 'detail'>): void;
   onOrder(callback: (order: PresentationOrder) => void): () => void;
   onState(callback: (state: Snapshot) => void): () => void;
 }

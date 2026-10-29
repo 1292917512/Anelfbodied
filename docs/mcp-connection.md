@@ -39,9 +39,10 @@
 
 ## 模块边界
 
-- `contracts/connection.ts`：配置输入、脱敏状态和连接控制接口。
-- `application/connection.ts`：并发、修订校验、连接等待、取消和关闭。
-- `host/settings.ts`：现有配置文件与系统凭据加密；存储格式保持版本 1。
+- `integrations/anelf/contracts.ts`：Anelf 配置输入、脱敏状态和连接控制接口。
+- `integrations/anelf/connection.ts`：并发、修订校验、连接等待、取消和关闭。
+- `integrations/anelf/settings.ts`：配置存储与注入的凭据加密接口；存储格式保持版本 1。
 - `integrations/anelf/client.ts`：HTTP/SSE 连接及频道会话控制。
-- `transports/mcp.ts`：把已认证的 MCP 工具调用和取消信号交给连接服务。
-- `renderer/panel/ConnectionForm.tsx` 与 `McpPanel.tsx`：表单同步及 MCP 接入说明。
+- `integrations/anelf/mcp.ts`：把 MCP 业务工具调用和取消信号交给连接服务。
+- `transports/mcp-extension.ts`：通用扩展注册点；传输实现不依赖 Anelf。
+- `integrations/anelf/ui/`：Anelf 表单同步与技能说明；`renderer/panel/McpPanel.tsx` 提供通用 MCP 接入配置。

@@ -5,7 +5,7 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test';
-import { mkdtemp, readFile, writeFile, copyFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, copyFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -15,13 +15,541 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { PROTOCOL } from '../../src/protocol/schema';
-import type { ConnectionOverview } from '../../src/contracts/connection';
+import type { ConnectionOverview } from '../../src/integrations/anelf/contracts';
+import type { ModelCapabilities } from '../../src/protocol/model';
+import type { HitRegion } from '../../src/shared/hit-region';
 
 const require = createRequire(import.meta.url);
 let app: ElectronApplication, panel: Page, pet: Page;
 let connection: { url: string; token: string };
 let data: string;
 const errors: string[] = [];
+
+interface PointerProbe {
+  x: number;
+  y: number;
+  ignored?: boolean;
+  captured?: boolean;
+  regions: HitRegion[];
+}
+async function probePointer() {
+  await app.evaluate(({ BrowserWindow, screen, ipcMain }) => {
+    const window = BrowserWindow.getAllWindows().find((item) =>
+      item.webContents.getURL().includes('view=pet'),
+    )!;
+    const contents = window.webContents;
+    const probe: PointerProbe = { x: 0, y: 0, regions: [] };
+    (globalThis as unknown as { pointerProbe: PointerProbe }).pointerProbe = probe;
+    screen.getCursorScreenPoint = () => ({
+      x: probe.x + window.getBounds().x,
+      y: probe.y + window.getBounds().y,
+    });
+    const original = window.setIgnoreMouseEvents.bind(window);
+    window.setIgnoreMouseEvents = (ignored, options) => {
+      probe.ignored = ignored;
+      original(ignored, options);
+    };
+    ipcMain.on('pet:regions', (event, regions: HitRegion[]) => {
+      if (event.sender === contents) probe.regions = regions;
+    });
+    ipcMain.on('pet:capture', (event, captured: boolean) => {
+      if (event.sender === contents) probe.captured = captured;
+    });
+  });
+  await expect
+    .poll(() =>
+      app.evaluate(() =>
+        (globalThis as unknown as { pointerProbe: PointerProbe }).pointerProbe.regions.some(
+          (item) => item.kind === 'model',
+        ),
+      ),
+    )
+    .toBe(true);
+}
+async function expectPointerAt(x: number, y: number, ignored: boolean) {
+  await app.evaluate(
+    (_electron, point) => {
+      Object.assign((globalThis as unknown as { pointerProbe: PointerProbe }).pointerProbe, point);
+    },
+    { x, y },
+  );
+  await expect
+    .poll(() =>
+      app.evaluate(
+        () => (globalThis as unknown as { pointerProbe: PointerProbe }).pointerProbe.ignored,
+      ),
+    )
+    .toBe(ignored);
+}
+async function expectCaptured(captured: boolean) {
+  await expect
+    .poll(() =>
+      app.evaluate(
+        () => (globalThis as unknown as { pointerProbe: PointerProbe }).pointerProbe.captured,
+      ),
+    )
+    .toBe(captured);
+}
+
+test('transparent model pixels pass through without clicks, chat or drag takeover', async () => {
+  await probePointer();
+  const body = pet.locator('.pet-body');
+  const box = (await body.boundingBox())!;
+  const start = await pet.locator('.pet-anchor').getAttribute('style');
+  await expectPointerAt(box.x + box.width / 2, box.y + box.height / 2, false);
+  await expectPointerAt(box.x + 2, box.y + 2, true);
+  await body.click({ position: { x: 2, y: 2 }, force: true });
+  await pet.waitForTimeout(350);
+  await expect(pet.locator('.pet-wheel')).not.toBeVisible();
+  await body.dblclick({ position: { x: 2, y: 2 }, force: true });
+  await expect(pet.getByRole('textbox', { name: '发送消息' })).not.toBeVisible();
+  await body.click({ button: 'right', position: { x: 2, y: 2 }, force: true });
+  await expect(pet.locator('.pet-wheel')).not.toBeVisible();
+  await pet.mouse.move(box.x + 2, box.y + 2);
+  await pet.mouse.down();
+  await pet.mouse.move(box.x - 80, box.y - 80, { steps: 8 });
+  await pet.mouse.up();
+  await expect(body).not.toHaveClass(/pressed/);
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('style', start!);
+  await expect(pet.locator('.pet-anchor')).not.toHaveAttribute('data-behavior', 'touch');
+  await body.click({ force: true });
+  await expect(pet.locator('.pet-wheel')).toBeVisible();
+  const wheel = (await pet.locator('.pet-wheel').boundingBox())!;
+  await expectPointerAt(wheel.x + wheel.width / 2, wheel.y + wheel.height / 2, false);
+  await pet.getByRole('button', { name: '收起轮盘' }).click();
+});
+
+test('PNG hit masks follow sprite frames and exclude aspect-ratio padding', async () => {
+  const source = await mkdtemp(join(tmpdir(), 'embodied-alpha-'));
+  const image = await pet.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 160;
+    canvas.height = 100;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = '#4466cc';
+    context.fillRect(8, 20, 24, 60);
+    context.fillRect(128, 20, 24, 60);
+    return canvas.toDataURL().split(',')[1]!;
+  });
+  await writeFile(join(source, 'sprite.png'), Buffer.from(image, 'base64'));
+  await writeFile(
+    join(source, 'manifest.json'),
+    JSON.stringify({
+      version: 2,
+      id: 'alpha-frames',
+      name: '透明帧测试',
+      type: 'png',
+      model: { animations: { idle: { file: 'sprite.png', columns: 2, frames: 2, fps: 2 } } },
+      bindings: { idle: 'idle' },
+    }),
+  );
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, source);
+  await openSettings();
+  await panel.getByRole('button', { name: '更换形象', exact: true }).click();
+  await panel.locator('.skin-chooser > summary').click();
+  await panel.getByRole('button', { name: '导入皮肤文件夹' }).click();
+  await expect(pet.locator('.model-view')).toHaveAttribute('data-model-status', 'ready');
+  await probePointer();
+  const samples = () =>
+    app.evaluate(() => {
+      const region = (
+        globalThis as unknown as { pointerProbe: PointerProbe }
+      ).pointerProbe.regions.find((item) => item.kind === 'model');
+      if (region?.kind !== 'model') return [];
+      const { mask } = region;
+      return [0.03, 0.3, 0.7, 0.97].map((x) => {
+        const index = Math.floor(mask.height / 2) * mask.width + Math.floor(mask.width * x);
+        return !!(mask.bits[index >> 3]! & (1 << (index & 7)));
+      });
+    });
+  await expect.poll(samples, { intervals: [60] }).toEqual([false, true, false, false]);
+  await expect.poll(samples, { intervals: [60] }).toEqual([false, false, true, false]);
+  await expect.poll(samples, { intervals: [60] }).toEqual([false, true, false, false]);
+  await panel.getByRole('button', { name: '设为 500%' }).click();
+  await expect.poll(samples, { intervals: [60] }).toEqual([false, false, true, false]);
+  expect((await (await request('/v1/capabilities')).json()).model.status).toBe('ready');
+});
+
+test('invalid Live2D keeps failure and retry visible without announcing readiness', async () => {
+  const source = await mkdtemp(join(tmpdir(), 'embodied-invalid-model-'));
+  await copyFile('src/renderer/public/skins/anelf/idle.png', join(source, 'pet.png'));
+  await writeFile(join(source, 'pet.moc3'), 'invalid-model');
+  await writeFile(
+    join(source, 'pet.model3.json'),
+    JSON.stringify({ Version: 3, FileReferences: { Moc: 'pet.moc3', Textures: ['pet.png'] } }),
+  );
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, source);
+  await openSettings();
+  await panel.getByRole('button', { name: '更换形象', exact: true }).click();
+  await panel.locator('.skin-chooser > summary').click();
+  await panel.getByRole('button', { name: '导入皮肤文件夹' }).click();
+  await expect(panel.getByRole('button', { name: '重新加载' })).toBeVisible();
+  const before = (await (await request('/v1/capabilities')).json()).model;
+  expect(before.status).toBe('error');
+  await panel.getByRole('button', { name: '重新加载' }).click();
+  await expect
+    .poll(async () => (await (await request('/v1/capabilities')).json()).model)
+    .toMatchObject({ status: 'error' });
+  const after = (await (await request('/v1/capabilities')).json()).model;
+  expect(after.revision).not.toBe(before.revision);
+  await panel.getByText('查看原因', { exact: true }).click();
+  await panel.screenshot({ path: 'test-results/model-load-error.png' });
+  await panel.getByRole('button', { name: 'Anelf · 银蓝猫耳 内置' }).click();
+  await expect(pet.getByAltText('Anelf · 银蓝猫耳')).toBeVisible();
+});
+
+test('Live2D discovers actions, renders real Cubism, cancels and fences skin changes through MCP', async () => {
+  test.skip(
+    !process.env.EMBODIED_LIVE2D_FIXTURE,
+    'Set EMBODIED_LIVE2D_FIXTURE to an official runtime model folder',
+  );
+  test.setTimeout(90000);
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, process.env.EMBODIED_LIVE2D_FIXTURE!);
+  await openSettings();
+  await panel.getByRole('button', { name: '更换形象', exact: true }).click();
+  await panel.locator('.skin-chooser > summary').click();
+  await panel.getByRole('button', { name: '导入皮肤文件夹' }).click();
+  await expect
+    .poll(async () => (await (await request('/v1/capabilities')).json()).model, { timeout: 25000 })
+    .toMatchObject({ type: 'live2d', status: 'ready' });
+  await expect(pet.locator('canvas.live2d-canvas')).toBeVisible();
+  const initialRevision = (await (await request('/v1/capabilities')).json()).model.revision;
+  await panel.getByRole('button', { name: '设为 500%' }).click();
+  await expect(panel.getByRole('spinbutton', { name: '桌宠大小百分比' })).toHaveValue('500');
+  await expect
+    .poll(() =>
+      pet.locator('canvas').evaluate((element) => {
+        const canvas = element as HTMLCanvasElement;
+        return (
+          canvas.width ===
+          Math.min(
+            2048,
+            Math.max(256, Math.ceil((canvas.clientWidth * devicePixelRatio) / 64) * 64),
+          )
+        );
+      }),
+    )
+    .toBe(true);
+  expect((await (await request('/v1/capabilities')).json()).model.revision).toBe(initialRevision);
+  await probePointer();
+  const silhouette = await app.evaluate(() => {
+    const region = (
+      globalThis as unknown as { pointerProbe: PointerProbe }
+    ).pointerProbe.regions.find((item) => item.kind === 'model');
+    if (region?.kind !== 'model') throw new Error('Missing Live2D hit mask');
+    const { mask, origin, horizontal, vertical } = region;
+    const at = (x: number, y: number) => {
+      const i = y * mask.width + x;
+      return !!(mask.bits[i >> 3]! & (1 << (i & 7)));
+    };
+    const candidates: { x: number; y: number; distance: number }[] = [];
+    for (let y = 6; y < mask.height - 6; y += 2) {
+      for (let x = 6; x < mask.width - 6; x += 2) {
+        if (at(x, y) && at(x - 5, y) && at(x + 5, y) && at(x, y - 5) && at(x, y + 5))
+          candidates.push({
+            x: (x + 0.5) / mask.width,
+            y: (y + 0.5) / mask.height,
+            distance: Math.hypot(x - mask.width / 2, y - mask.height / 2),
+          });
+      }
+    }
+    const hit = candidates.sort((a, b) => a.distance - b.distance)[0];
+    if (!hit) throw new Error('Rendered Live2D has no opaque hit area');
+    return {
+      hit: {
+        x: origin.x + horizontal.x * hit.x + vertical.x * hit.y,
+        y: origin.y + horizontal.y * hit.x + vertical.y * hit.y,
+      },
+      miss: {
+        x: origin.x + horizontal.x * 0.01 + vertical.x * 0.01,
+        y: origin.y + horizontal.y * 0.01 + vertical.y * 0.01,
+      },
+    };
+  });
+  await expectPointerAt(silhouette.hit.x, silhouette.hit.y, false);
+  await expectPointerAt(silhouette.miss.x, silhouette.miss.y, true);
+  await panel.screenshot({ path: 'test-results/appearance-large-model.png' });
+
+  await pet.screenshot({ path: 'test-results/live2d-initial.png' });
+  const pixels = await pet.locator('canvas').evaluate(
+    (element) =>
+      new Promise<number>((resolve) =>
+        requestAnimationFrame(() => {
+          const canvas = element as HTMLCanvasElement;
+          const copy = document.createElement('canvas');
+          copy.width = canvas.width;
+          copy.height = canvas.height;
+          const context = copy.getContext('2d')!;
+          context.drawImage(canvas, 0, 0);
+          resolve(
+            [...context.getImageData(0, 0, copy.width, copy.height).data].filter(
+              (value, index) => index % 4 === 3 && value > 0,
+            ).length,
+          );
+        }),
+      ),
+  );
+  expect(pixels).toBeGreaterThan(1000);
+  const client = await connectMcp();
+  try {
+    const capabilities = (await client.callTool({ name: 'pet_capabilities' }))
+      .structuredContent as unknown as { model: ModelCapabilities };
+    const model = capabilities.model;
+    expect(model.actions.length).toBeGreaterThan(1);
+    const motion = model.actions.find(
+      (action) => action.kind === 'motion' && action.name !== model.bindings.idle,
+    )!;
+    expect(motion).toBeDefined();
+    const action = {
+      action: 'perform',
+      name: motion.name,
+      revision: model.revision,
+      durationMs: 1800,
+    };
+    const batch = command('live2d-play', [action]);
+    const pending = client.callTool({ name: 'pet_execute', arguments: batch });
+    await expect(pet.locator('canvas')).toHaveAttribute('data-action', motion.name);
+    await panel.evaluate(
+      ({ skinId, name }) => window.embodied.setBehaviors({ skinId, patch: { touch: name } }),
+      { skinId: model.skinId, name: motion.name },
+    );
+    const updatedModel = (await (await request('/v1/capabilities')).json()).model;
+    expect(updatedModel.bindings.touch).toBe(motion.name);
+    expect(updatedModel.revision).toBe(model.revision);
+    expect(updatedModel.status).toBe('ready');
+    await panel.getByRole('button', { name: '设为 300%' }).click();
+    await expect(panel.getByRole('spinbutton', { name: '桌宠大小百分比' })).toHaveValue('300');
+    expect((await (await request('/v1/capabilities')).json()).model.revision).toBe(model.revision);
+    await expect(pet.locator('canvas')).toHaveAttribute('data-action', motion.name);
+    await pet.screenshot({ path: 'test-results/live2d-pet.png' });
+    await panel.screenshot({ path: 'test-results/live2d-panel.png' });
+    expect((await pending).structuredContent).toMatchObject({ status: 'completed', completed: 1 });
+    const duplicate = await client.callTool({ name: 'pet_execute', arguments: batch });
+    expect(duplicate.structuredContent).toMatchObject({ status: 'completed', completed: 1 });
+    const expression = model.actions.find((action) => action.kind === 'expression');
+    if (expression) {
+      const result = await client.callTool({
+        name: 'pet_execute',
+        arguments: command('live2d-expression', [
+          { ...action, name: expression.name, durationMs: 300 },
+        ]),
+      });
+      expect(result.structuredContent).toMatchObject({ status: 'completed', completed: 1 });
+    }
+    await request('/v1/commands', command('live2d-cancel', [{ ...action, durationMs: 10000 }]));
+    await expect(pet.locator('canvas')).toHaveAttribute('data-action', motion.name);
+    const cancelled = await client.callTool({
+      name: 'pet_cancel',
+      arguments: { id: 'live2d-cancel' },
+    });
+    expect(cancelled.structuredContent).toMatchObject({
+      receipts: [{ status: 'cancelled', completed: 0 }],
+    });
+    await expect(pet.locator('canvas')).toHaveAttribute('data-action', model.bindings.idle!);
+    const abort = new AbortController();
+    const sdkCall = client
+      .callTool(
+        {
+          name: 'pet_execute',
+          arguments: command('live2d-sdk-cancel', [
+            { action: 'say', text: '准备动作', durationMs: 300 },
+            { ...action, durationMs: 10000 },
+          ]),
+        },
+        undefined,
+        { signal: abort.signal },
+      )
+      .catch(() => undefined);
+    await expect(pet.locator('canvas')).toHaveAttribute('data-action', motion.name);
+    abort.abort();
+    await sdkCall;
+    await expect
+      .poll(async () => await (await request('/v1/receipts/live2d-sdk-cancel')).json())
+      .toMatchObject({ status: 'cancelled', completed: 1 });
+    await expect(pet.locator('canvas')).toHaveAttribute('data-action', model.bindings.idle!);
+    await request('/v1/commands', command('live2d-switch', [{ ...action, durationMs: 10000 }]));
+    await expect(pet.locator('canvas')).toHaveAttribute('data-action', motion.name);
+    await panel.getByRole('button', { name: 'Anelf · 银蓝猫耳 内置' }).click();
+    await expect(pet.getByAltText('Anelf · 银蓝猫耳')).toBeVisible();
+    await expect
+      .poll(async () => (await (await request('/v1/receipts/live2d-switch')).json()).status)
+      .toBe('cancelled');
+    const stale = await request('/v1/commands', command('live2d-stale', [action]));
+    expect(stale.status).toBe(409);
+  } finally {
+    await client.close();
+  }
+});
+test('ViewerEX library uses WPK in memory, keeps voice cancellation and deduplicates Steam entries', async () => {
+  test.skip(!process.env.EMBODIED_WPK_FIXTURE, 'Set EMBODIED_WPK_FIXTURE to a local ViewerEX WPK');
+  test.setTimeout(90000);
+  await openSettings();
+  await panel.getByRole('button', { name: '更换形象', exact: true }).click();
+  await panel.locator('.skin-chooser > summary').click();
+  await panel.locator('.model-library > summary').click();
+  await expect(panel.getByRole('button', { name: '添加模型文件' })).toBeEnabled({ timeout: 20000 });
+  const discovered = await panel.evaluate(() => window.embodied.modelLibrary({ action: 'list' }));
+  for (const root of discovered.roots)
+    await panel.evaluate(
+      (root) => window.embodied.modelLibrary({ action: 'remove', ...root }),
+      root,
+    );
+  await app.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+  }, process.env.EMBODIED_WPK_FIXTURE!);
+  await panel.getByRole('button', { name: '添加模型文件' }).click();
+  await expect(panel.getByRole('button', { name: '添加模型文件' })).toBeEnabled();
+  const state = await panel.evaluate(() => window.embodied.modelLibrary({ action: 'list' }));
+  const entry = state.models.find((model) => model.name.includes('丛雨'))!;
+  expect(entry).toBeDefined();
+  expect(entry.format).toBe('WPK');
+  expect(state.models.filter((item) => item.id === entry.id)).toHaveLength(1);
+  await panel.getByLabel('搜索模型库').fill('丛雨');
+  await panel.locator('.library-model').getByRole('button', { name: '使用', exact: true }).click();
+  await expect
+    .poll(async () => (await (await request('/v1/capabilities')).json()).model, { timeout: 25000 })
+    .toMatchObject({ type: 'live2d', status: 'ready' });
+  const model = (await (await request('/v1/capabilities')).json()).model as ModelCapabilities;
+  expect(model.actions).toHaveLength(19);
+  expect(await readdir(join(data, 'skins', model.skinId))).toEqual(['source.json']);
+  await panel.screenshot({ path: 'test-results/viewerex-library.png' });
+  await pet.screenshot({ path: 'test-results/viewerex-pet.png' });
+  await pet.evaluate(() => {
+    const original = AudioContext.prototype.createBufferSource;
+    const active = new Set<AudioBufferSourceNode>();
+    Object.assign(window, { voiceNodes: active });
+    AudioContext.prototype.createBufferSource = function () {
+      const node = original.call(this),
+        start = node.start.bind(node),
+        stop = node.stop.bind(node);
+      node.start = (...args) => {
+        active.add(node);
+        return start(...args);
+      };
+      node.stop = (...args) => {
+        active.delete(node);
+        return stop(...args);
+      };
+      node.addEventListener('ended', () => active.delete(node));
+      return node;
+    };
+  });
+  const client = await connectMcp();
+  const action = {
+    action: 'perform',
+    name: 'motion/Tapface/0',
+    revision: model.revision,
+    durationMs: 10000,
+  };
+  try {
+    await request('/v1/commands', command('viewerex-voice', [action]));
+    await expect
+      .poll(() =>
+        pet.evaluate(() => (window as unknown as { voiceNodes: Set<unknown> }).voiceNodes.size),
+      )
+      .toBe(1);
+    const cancelled = await client.callTool({
+      name: 'pet_cancel',
+      arguments: { id: 'viewerex-voice' },
+    });
+    expect(cancelled.structuredContent).toMatchObject({ receipts: [{ status: 'cancelled' }] });
+    await expect
+      .poll(() =>
+        pet.evaluate(() => (window as unknown as { voiceNodes: Set<unknown> }).voiceNodes.size),
+      )
+      .toBe(0);
+    const result = await client.callTool({
+      name: 'pet_execute',
+      arguments: command('viewerex-complete', [{ ...action, durationMs: 300 }]),
+    });
+    expect(result.structuredContent).toMatchObject({ status: 'completed', completed: 1 });
+    await expect
+      .poll(() =>
+        pet.evaluate(() => (window as unknown as { voiceNodes: Set<unknown> }).voiceNodes.size),
+      )
+      .toBe(0);
+    await panel.evaluate((id) => window.embodied.modelLibrary({ action: 'use', id }), entry.id);
+    const after = await panel.evaluate(() => window.embodied.snapshot());
+    expect(after.appearance.skins.filter((skin) => skin.id === model.skinId)).toHaveLength(1);
+    await expect
+      .poll(async () => (await (await request('/v1/capabilities')).json()).model.status)
+      .toBe('ready');
+    expect(after.model?.revision).not.toBe(model.revision);
+    await request(
+      '/v1/commands',
+      command('viewerex-switch', [{ ...action, revision: after.model!.revision }]),
+    );
+    await expect
+      .poll(() =>
+        pet.evaluate(() => (window as unknown as { voiceNodes: Set<unknown> }).voiceNodes.size),
+      )
+      .toBe(1);
+    await panel.getByRole('button', { name: 'Anelf · 银蓝猫耳 内置' }).click();
+    await expect
+      .poll(() =>
+        pet.evaluate(() => (window as unknown as { voiceNodes: Set<unknown> }).voiceNodes.size),
+      )
+      .toBe(0);
+    await expect
+      .poll(async () => (await (await request('/v1/receipts/viewerex-switch')).json()).status)
+      .toBe('cancelled');
+  } finally {
+    await client.close();
+  }
+});
+
+test('ViewerEX installed library renders every supported local model and switches safely', async () => {
+  test.skip(
+    !process.env.EMBODIED_VIEWEREX_FIXTURE,
+    'Set EMBODIED_VIEWEREX_FIXTURE to a local model library',
+  );
+  test.setTimeout(120000);
+  await openSettings();
+  await panel.getByRole('button', { name: '更换形象', exact: true }).click();
+  await panel.locator('.skin-chooser > summary').click();
+  await panel.locator('.model-library > summary').click();
+  await expect(panel.getByRole('button', { name: '添加目录' })).toBeEnabled({ timeout: 20000 });
+  await app.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+  }, process.env.EMBODIED_VIEWEREX_FIXTURE!);
+  await panel.getByRole('button', { name: '添加目录' }).click();
+  await expect(panel.getByRole('button', { name: '添加目录' })).toBeEnabled();
+  const library = await panel.evaluate(() => window.embodied.modelLibrary({ action: 'list' }));
+  expect(library.models.length).toBeGreaterThan(1);
+  for (const item of library.models.filter((item) => !item.detail)) {
+    await panel.evaluate((id) => window.embodied.modelLibrary({ action: 'use', id }), item.id);
+    await expect
+      .poll(async () => (await (await request('/v1/capabilities')).json()).model, {
+        timeout: 25000,
+        message: item.name,
+      })
+      .toMatchObject({ type: 'live2d', status: 'ready' });
+    await pet.screenshot({
+      path: `test-results/viewerex-${item.id}.png`,
+      clip: (await pet.locator('canvas').boundingBox())!,
+    });
+    const model = (await (await request('/v1/capabilities')).json()).model as ModelCapabilities;
+    const action = model.actions.find((action) => action.name !== model.bindings.idle);
+    if (action) {
+      await request(
+        '/v1/commands',
+        command(`model-${item.id}`, [
+          { action: 'perform', name: action.name, revision: model.revision, durationMs: 200 },
+        ]),
+      );
+      await expect
+        .poll(async () => (await (await request(`/v1/receipts/model-${item.id}`)).json()).status)
+        .toBe('completed');
+    }
+  }
+});
+
 test.beforeEach(async () => {
   data = await mkdtemp(join(tmpdir(), 'embodied-e2e-'));
   const env: NodeJS.ProcessEnv = {
@@ -85,15 +613,18 @@ const command = (id: string, commands: object[]) => ({
 });
 
 const openSettings = async () => {
-  await pet.locator('.pet-body').hover({ force: true });
-  await pet.getByRole('button', { name: '连接设置', exact: true }).click();
+  if (!(await pet.getByRole('menu', { name: '桌宠操作轮盘' }).isVisible()))
+    await pet.locator('.pet-body').click({ force: true });
+  await pet.getByRole('menuitem', { name: '连接设置', exact: true }).click();
   await expect(panel.getByLabel('频道地址')).toBeVisible();
 };
 
-test('single touch responds and double-click opens only a compact input bubble', async () => {
+test('single click opens a wheel and double-click opens only a compact input bubble', async () => {
   await pet.locator('.pet-body').click({ force: true });
-  await expect(pet.locator('.skin-frame')).toHaveClass(/patted/);
-  await expect(pet.getByText('嗯？我在呀')).toBeVisible();
+  await expect(pet.getByRole('menu', { name: '桌宠操作轮盘' })).toBeVisible();
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'touch');
+  await pet.screenshot({ path: 'test-results/pet-wheel.png' });
+  await pet.getByRole('button', { name: '收起轮盘' }).click();
   await pet.locator('.pet-body').dblclick({ force: true });
   const input = pet.getByRole('textbox', { name: '发送消息' });
   await expect(input).toBeVisible();
@@ -270,20 +801,25 @@ test('keeps questions within the screen at all movement boundaries', async () =>
 });
 
 test('touch preserves AI work, dragging takes over, and the utility panel stays on screen', async () => {
+  await probePointer();
   await request(
     '/v1/commands',
     command('drag-takeover', [{ action: 'say', text: '拖动接管验证', durationMs: 30000 }]),
   );
   await expect(pet.getByText('拖动接管验证')).toBeVisible();
   await pet.locator('.pet-body').click({ force: true });
-  await expect(pet.locator('.skin-frame')).toHaveClass(/patted/);
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'touch');
   expect((await (await request('/v1/receipts/drag-takeover')).json()).status).toBe('running');
   const box = await pet.locator('.pet-body').boundingBox();
   if (!box) throw new Error('Pet is not visible');
   await pet.mouse.move(box.x + 70, box.y + 70);
+  await expectPointerAt(box.x + 70, box.y + 70, false);
   await pet.mouse.down();
+  await expect(pet.locator('.pet-body')).toHaveClass(/pressed/);
+  await expectCaptured(true);
   await pet.mouse.move(box.x - 90, box.y + 20, { steps: 10 });
   await pet.mouse.up();
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'drop');
   await expect
     .poll(async () => (await (await request('/v1/receipts/drag-takeover')).json()).status)
     .toBe('cancelled');
@@ -331,8 +867,22 @@ test('imports a sprite skin, changes scale and switches back without interruptin
   }, source);
   await openSettings();
   await panel.getByRole('button', { name: '更换形象', exact: true }).click();
+  await panel.locator('.skin-chooser > summary').click();
   await panel.getByRole('button', { name: '导入皮肤文件夹' }).click();
   await expect(pet.getByAltText('测试皮肤')).toBeVisible();
+  await expect
+    .poll(async () => (await (await request('/v1/capabilities')).json()).model.status)
+    .toBe('ready');
+  const model = (await (await request('/v1/capabilities')).json()).model;
+  await request(
+    '/v1/commands',
+    command('png-perform', [
+      { action: 'perform', name: 'idle', revision: model.revision, durationMs: 300 },
+    ]),
+  );
+  await expect
+    .poll(async () => (await (await request('/v1/receipts/png-perform')).json()).status)
+    .toBe('completed');
   await expect
     .poll(() =>
       pet.locator('.sprite-sheet').evaluate((element) => getComputedStyle(element).transform),
@@ -343,8 +893,8 @@ test('imports a sprite skin, changes scale and switches back without interruptin
     command('skin-live', [{ action: 'say', text: '换装时继续说话', durationMs: 30000 }]),
   );
   await expect(pet.getByText('换装时继续说话')).toBeVisible();
-  await panel.getByRole('slider', { name: '桌宠大小' }).focus();
-  await panel.keyboard.press('End');
+  await panel.getByRole('spinbutton', { name: '桌宠大小百分比' }).fill('150');
+  await panel.getByRole('spinbutton', { name: '桌宠大小百分比' }).press('Enter');
   await expect
     .poll(() => pet.locator('.pet-body').evaluate((element) => element.clientWidth))
     .toBe(210);
@@ -364,11 +914,124 @@ test('imports a sprite skin, changes scale and switches back without interruptin
       { action: 'emote', name: 'happy', durationMs: 10000 },
     ]),
   );
-  await expect(pet.locator('.pet-body')).toHaveClass(/happy/);
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'happy');
+  await pet.locator('.pet-body').click({ force: true });
+  await expect(pet.locator('.pet-wheel')).toBeVisible();
   expect(
-    await pet.locator('.pet-tools').evaluate((element) => {
+    await pet.locator('.pet-wheel').evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       return bounds.right <= innerWidth && bounds.bottom <= innerHeight;
+    }),
+  ).toBe(true);
+});
+
+test('size controls allow precise large models and fit smaller screens without losing settings', async () => {
+  await openSettings();
+  await panel.getByRole('button', { name: '更换形象', exact: true }).click();
+  await panel.locator('.skin-chooser > summary').click();
+  const boundsBefore = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => !window.webContents.getURL().includes('view=pet'))!
+      .getBounds(),
+  );
+  const input = panel.getByRole('spinbutton', { name: '桌宠大小百分比' });
+  await input.fill('375');
+  await input.press('Enter');
+  await expect(panel.getByRole('slider', { name: '桌宠大小' })).toHaveValue('375');
+  expect(
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => !window.webContents.getURL().includes('view=pet'))!
+        .getBounds(),
+    ),
+  ).toEqual(boundsBefore);
+  await expect
+    .poll(() => pet.locator('.pet-body').evaluate((element) => element.clientWidth))
+    .toBeGreaterThan(210);
+  await input.fill('0');
+  await input.press('Enter');
+  await expect(input).toHaveAttribute('aria-invalid', 'true');
+  expect((await panel.evaluate(() => window.embodied.snapshot())).appearance.scale).toBe(3.75);
+  await input.fill('1000');
+  await input.press('Enter');
+  await expect
+    .poll(async () => (await panel.evaluate(() => window.embodied.snapshot())).appearance.scale)
+    .toBe(10);
+  expect(
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => !window.webContents.getURL().includes('view=pet'))!
+        .getBounds(),
+    ),
+  ).toEqual(boundsBefore);
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find((window) =>
+      window.webContents.getURL().includes('view=pet'),
+    )!;
+    window.setBounds({ width: 800, height: 600 });
+  });
+  await expect
+    .poll(async () => (await panel.evaluate(() => window.embodied.snapshot())).petViewport)
+    .toEqual({ width: 800, height: 600 });
+  await expect(panel.getByText(/当前屏幕适配为/)).toBeVisible();
+  const body = (await pet.locator('.pet-body').boundingBox())!;
+  await pet.mouse.move(body.x + body.width / 2, body.y + body.height / 2);
+  await pet.mouse.down();
+  await pet.mouse.move(body.x + body.width / 2 - 80, body.y + body.height / 2 - 30, { steps: 6 });
+  await pet.mouse.up();
+  expect(
+    await pet.locator('.pet-body').evaluate((element) => {
+      const r = element.getBoundingClientRect();
+      return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+    }),
+  ).toBe(true);
+  await request(
+    '/v1/commands',
+    command('large-edge', [
+      { action: 'move', x: 1, y: 1, durationMs: 100 },
+      { action: 'ask', question: '放大后仍可回答', options: ['确认'], durationMs: 30000 },
+    ]),
+  );
+  await expect(pet.getByRole('button', { name: '确认', exact: true })).toBeVisible();
+  const bounds = await pet.evaluate(() =>
+    ['.pet-body', '.pet-bubble'].map((selector) => {
+      const r = document.querySelector(selector)!.getBoundingClientRect();
+      return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+    }),
+  );
+  expect(bounds).toEqual([true, true]);
+  await pet.getByRole('button', { name: '确认', exact: true }).click();
+  await expect
+    .poll(async () => (await (await request('/v1/receipts/large-edge')).json()).status)
+    .toBe('completed');
+  expect(JSON.parse(await readFile(join(data, 'appearance.json'), 'utf8')).scale).toBe(10);
+  await panel.getByRole('button', { name: '设为 300%' }).click();
+  await expect(input).toHaveValue('300');
+  await input.fill('300.1');
+  await input.press('Enter');
+  await expect(input).toHaveValue('300');
+  await input.fill('0');
+  await panel.getByRole('button', { name: '设为 300%' }).click();
+  await expect(input).toHaveValue('300');
+  await panel.locator('.detail-scroll').evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await panel.screenshot({ path: 'test-results/appearance-size-controls.png' });
+  await input.fill('25');
+  await input.press('Enter');
+  await request(
+    '/v1/commands',
+    command('minimum-edge', [{ action: 'move', x: 0, y: 0, durationMs: 100 }]),
+  );
+  await expect
+    .poll(async () => (await (await request('/v1/receipts/minimum-edge')).json()).status)
+    .toBe('completed');
+  await pet.locator('.pet-body').click({ force: true });
+  await expect(pet.locator('.pet-wheel')).toBeVisible();
+  expect(
+    await pet.locator('.pet-wheel').evaluate((element) => {
+      const r = element.getBoundingClientRect();
+      return r.left >= 0 && r.right <= innerWidth && r.top >= 0;
     }),
   ).toBe(true);
 });
@@ -417,6 +1080,7 @@ test('packaged update interface shows download progress and a verified install a
     { payload, digest: createHash('sha256').update(payload).digest('hex') },
   );
   await openSettings();
+  await panel.getByText('应用与更新', { exact: true }).click();
   await panel.getByRole('button', { name: '检查更新', exact: true }).click();
   await panel.getByRole('button', { name: '下载更新', exact: true }).click();
   await expect(panel.getByRole('progressbar', { name: '更新下载进度' })).toBeVisible();
@@ -454,6 +1118,9 @@ for (const [index, scheme] of ['HTTP', 'HTTPS'].entries()) {
       await panel.getByLabel('频道地址').fill(fixture.urls[index]!);
       await panel.getByLabel('API Token', { exact: true }).fill(fixture.token);
     }
+    await panel.locator('.connection-advanced').evaluate((element) => {
+      (element as HTMLDetailsElement).open = true;
+    });
     await panel.getByLabel('技能名称', { exact: true }).fill(index ? '   ' : '');
     await panel.getByRole('button', { name: '保存并连接' }).click();
     await expect(panel.locator('.connection')).toContainText('已连接');
@@ -510,7 +1177,7 @@ test('channel settings distinguish failure, handshake, synchronization and recov
     await expect(panel.getByRole('alert')).toContainText('服务未启动或端口不可达');
     await expect(panel.getByText('配置已保存', { exact: true })).toBeVisible();
     await expect(panel.getByRole('button', { name: '重试连接' })).toBeEnabled();
-    const status = panel.getByRole('status', { name: '频道状态' });
+    const status = panel.locator('[aria-label="频道状态"]');
     await expect(status).toBeVisible();
     await panel.screenshot({ path: 'test-results/channel-failure.png' });
 
@@ -585,6 +1252,9 @@ test('channel preserves speech and sends setup with the live MCP configuration o
     await panel.getByRole('button', { name: '保存并连接' }).click();
     await expect(panel.locator('.connection')).toHaveText('已连接');
     expect(received).toHaveLength(0);
+    await panel.locator('.connection-advanced').evaluate((element) => {
+      (element as HTMLDetailsElement).open = true;
+    });
     await panel.getByLabel('技能名称', { exact: true }).fill('   ');
     await panel.getByRole('button', { name: '保存并连接' }).click();
     await expect(panel.getByLabel('技能名称', { exact: true })).toHaveValue('');
@@ -687,6 +1357,9 @@ test('MCP configuration stays redacted, updates the UI and prevents stale form e
     expect(JSON.stringify(configured)).not.toContain('configuration-test-secret');
     await expect(panel.getByLabel('用户标识')).toHaveValue('agent-user');
     const state = configured.structuredContent as unknown as ConnectionOverview;
+    await panel.locator('.connection-advanced').evaluate((element) => {
+      (element as HTMLDetailsElement).open = true;
+    });
     await panel.getByLabel('技能名称', { exact: true }).fill('local-draft');
     await client.callTool({
       name: 'pet_configure_connection',
@@ -775,4 +1448,112 @@ test('MCP SDK cancellation stops a channel handshake without losing saved settin
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test('behavior mappings stay per skin, update live, and gestures clean up after pointer cancellation', async () => {
+  await probePointer();
+  const source = await mkdtemp(join(tmpdir(), 'embodied-behavior-e2e-'));
+  await copyFile('src/renderer/public/skins/anelf/idle.png', join(source, 'pet.png'));
+  const manifest = JSON.stringify({
+    version: 2,
+    id: 'behavior-test',
+    name: '行为测试',
+    type: 'png',
+    model: {
+      animations: {
+        rest: { file: 'pet.png', frames: 1 },
+        response: { file: 'pet.png', columns: 2, frames: 4, fps: 4 },
+      },
+    },
+    actions: {
+      rest: { source: 'rest' },
+      response: { source: 'response', description: '自定义回应', durationMs: 2000 },
+    },
+    bindings: { idle: 'rest' },
+  });
+  await writeFile(join(source, 'manifest.json'), manifest);
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, source);
+  await openSettings();
+  await panel.getByRole('button', { name: '更换形象', exact: true }).click();
+  await panel.locator('.skin-chooser > summary').click();
+  await panel.getByRole('button', { name: '导入皮肤文件夹' }).click();
+  await expect
+    .poll(async () => (await (await request('/v1/capabilities')).json()).model.status)
+    .toBe('ready');
+  const revision = (await (await request('/v1/capabilities')).json()).model.revision;
+  await panel.locator('.behavior-settings > summary').click();
+  await panel.getByLabel('触摸动作', { exact: true }).selectOption(JSON.stringify('response'));
+  await panel.getByLabel('拎起动作', { exact: true }).selectOption(JSON.stringify('response'));
+  await expect
+    .poll(async () => (await (await request('/v1/capabilities')).json()).model)
+    .toMatchObject({
+      revision,
+      status: 'ready',
+      bindings: { touch: 'response', drag: 'response' },
+    });
+  const client = await connectMcp();
+  try {
+    const discovered = (await client.callTool({ name: 'pet_capabilities' }))
+      .structuredContent as unknown as { model: ModelCapabilities };
+    expect(discovered.model.behaviors?.some((item) => item.id === 'drag')).toBe(true);
+    expect(discovered.model.bindings.touch).toBe('response');
+  } finally {
+    await client.close();
+  }
+  await panel.screenshot({ path: 'test-results/behavior-mappings.png' });
+  await panel.getByRole('button', { name: '收起浮层' }).click();
+  await pet.locator('.pet-body').click({ force: true });
+  await expect(pet.locator('.sprite-sheet')).toHaveCSS('width', '280px');
+  await expect(pet.locator('.pet-wheel')).toBeVisible();
+  await pet.getByRole('button', { name: '收起轮盘' }).click();
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'idle');
+  const body = (await pet.locator('.pet-body').boundingBox())!;
+  await pet.mouse.move(body.x + body.width / 2, body.y + body.height / 2);
+  await expectPointerAt(body.x + body.width / 2, body.y + body.height / 2, false);
+  await pet.mouse.down();
+  await expect(pet.locator('.pet-body')).toHaveClass(/pressed/);
+  await expectCaptured(true);
+  await pet.mouse.move(body.x + body.width / 2 - 50, body.y + body.height / 2, { steps: 5 });
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'drag');
+  await pet.locator('.pet-body').dispatchEvent('pointercancel');
+  await pet.mouse.up();
+  await expect(pet.locator('.pet-anchor')).not.toHaveAttribute('data-behavior', 'drag');
+  await expect(pet.locator('.pet-body')).not.toHaveClass(/pressed/);
+  await expect(pet.locator('.pet-wheel')).not.toBeVisible();
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'idle');
+  const resting = (await pet.locator('.pet-body').boundingBox())!;
+  for (let i = 0; i < 8; i++) {
+    await pet.mouse.move(
+      resting.x + resting.width * (i % 2 ? 0.6 : 0.4),
+      resting.y + resting.height * 0.3,
+      { steps: 12 },
+    );
+  }
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'touch');
+  await expect(pet.locator('.pet-wheel')).not.toBeVisible();
+  await panel.evaluate(() =>
+    window.embodied.setBehaviors({ skinId: 'behavior-test', patch: { idle: '', touch: '' } }),
+  );
+  await pet.reload();
+  await expect
+    .poll(async () => (await (await request('/v1/capabilities')).json()).model.status)
+    .toBe('ready');
+  await expect(pet.getByAltText('行为测试')).toBeVisible();
+  expect(await readFile(join(source, 'manifest.json'), 'utf8')).toBe(manifest);
+  expect(
+    JSON.parse(await readFile(join(data, 'behaviors.json'), 'utf8')).skins['behavior-test'].drag,
+  ).toBe('response');
+  await panel.evaluate(() => window.embodied.setAppearance({ skinId: 'anelf', scale: 1 }));
+  await expect(pet.getByAltText('Anelf · 银蓝猫耳')).toBeVisible();
+  expect((await (await request('/v1/capabilities')).json()).model.bindings.drag).toBeUndefined();
+  await pet.locator('.pet-body').click({ force: true });
+  await expect(pet.locator('.pet-wheel')).toBeVisible();
+  await pet.keyboard.press('ArrowRight');
+  await expect(pet.getByRole('menuitem', { name: '更换形象' })).toBeFocused();
+  await pet.keyboard.press('Home');
+  await pet.keyboard.press('Enter');
+  await expect(pet.getByRole('textbox', { name: '发送消息' })).toBeFocused();
+  await expect(pet.locator('.pet-wheel')).not.toBeVisible();
 });

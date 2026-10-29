@@ -16,7 +16,7 @@
 { "action": "emote", "name": "happy", "durationMs": 1500 }
 ```
 
-可用 `name`：`neutral`、`happy`、`thinking`、`sleepy`、`surprised`。`durationMs` 范围 100–30000，默认 2000 毫秒。皮肤缺少专用帧时使用通用反馈；不能假定当前皮肤具有独立的眨眼、挥手或跳舞动画。
+这是通用情绪反馈，`name` 的可选值以能力响应中的 JSON Schema 为准。`durationMs` 范围 100–30000，默认 2000 毫秒。皮肤缺少专用帧时使用通用反馈；需要播放模型自身的动作或表情时，按[模型动作](model-actions.md)查询并使用 `perform`。
 
 `emote:thinking` 只表达状态，不启动模型推理。`say` 不播放语音。当前批次逐步串行：先 `emote` 再 `say` 会先完成表情再展示文字，不能实现同时播放；不要捏造 `parallel` 参数。
 

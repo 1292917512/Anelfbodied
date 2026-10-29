@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Settings } from '../src/host/settings';
+import { Settings } from '../src/integrations/anelf/settings';
 
 describe('connection settings', () => {
   it('loads old settings without a skill and persists or clears a selected skill', () => {

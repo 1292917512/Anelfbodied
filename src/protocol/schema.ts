@@ -1,8 +1,17 @@
 import { z } from 'zod';
+import { modelActionName } from './model';
 
 export const PROTOCOL = 'desktop-pet/1' as const;
 const identifier = z.string().regex(/^[a-zA-Z0-9_.:-]{1,100}$/);
 export const actionSchemas = {
+  perform: z
+    .object({
+      action: z.literal('perform'),
+      name: modelActionName,
+      revision: identifier,
+      durationMs: z.number().int().min(100).max(120000).default(2000),
+    })
+    .strict(),
   say: z
     .object({
       action: z.literal('say'),
@@ -39,6 +48,7 @@ export const actionSchema = z.discriminatedUnion('action', [
   actionSchemas.emote,
   actionSchemas.move,
   actionSchemas.ask,
+  actionSchemas.perform,
 ]);
 export const commandSchema = z
   .object({

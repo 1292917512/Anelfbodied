@@ -1,0 +1,70 @@
+.pet-wheel {
+  position: absolute;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  z-index: 10;
+  pointer-events: auto;
+  background: radial-gradient(circle, #fffefaeb 0 30%, #f5f4edec 68%, #f5f4ed00 72%);
+  animation: wheel-in 160ms ease-out;
+}
+.wheel-orbit {
+  position: absolute;
+  inset: 37px;
+  border: 1px solid #dce2d1;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.pet-wheel button {
+  position: absolute;
+  translate: -50% -50%;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  padding: 8px 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: #fffef9;
+  border: 1px solid #e0e5d6;
+  box-shadow: 0 3px 12px #4453350e;
+  font-size: 10px;
+  color: #66765c;
+  transition:
+    background 120ms,
+    scale 120ms;
+}
+.pet-wheel button:hover:not(:disabled),
+.pet-wheel button:focus-visible {
+  background: #e8efdf;
+  scale: 1.06;
+}
+.pet-wheel .wheel-stop {
+  color: #a27461;
+}
+.pet-wheel .wheel-close {
+  top: 120px;
+  left: 120px;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  box-shadow: none;
+  background: #e9ede1;
+}
+@keyframes wheel-in {
+  from {
+    opacity: 0;
+    scale: 0.94;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pet-wheel {
+    animation: none;
+  }
+}

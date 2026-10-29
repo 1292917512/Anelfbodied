@@ -1,22 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { PetEngine, type PetState } from './engine';
-import { petAnchor } from '../../shared/geometry';
-import type { CompanionState } from '../../contracts/client';
+import { petAnchor, petDisplaySize } from '../../shared/geometry';
+import type { CompanionState, PanelView } from '../../contracts/client';
 import { usePetGestures } from './usePetGestures';
 import { usePointerRegions } from './usePointerRegions';
+import { useBehavior } from './useBehavior';
 import { PetBubble } from './PetBubble';
-import { Icon } from '../components/Icon';
+import { PetWheel } from './wheel/PetWheel';
+import { wheelPosition } from './wheel/layout';
 import { SkinSprite } from '../components/SkinSprite';
-import type { Motion } from '../../skins/schema';
+import { ModelView } from '../components/ModelView';
+import type { ModelSession } from '../../model/session';
 
-const faces: Record<string, string> = {
-  happy: '✦',
-  thinking: '···',
-  sleepy: 'Zz',
-  surprised: '!',
-  neutral: '',
-};
-const greetings = ['嗯？我在呀', '收到你的摸摸了', '双击，和我聊聊'];
 export function Pet() {
   const [state, setState] = useState<PetState>({
     x: 0.78,
@@ -26,6 +21,7 @@ export function Pet() {
     question: '',
     options: [],
     moving: false,
+    performing: false,
   });
   const [companion, setCompanion] = useState<CompanionState>({
     status: 'offline',
@@ -35,66 +31,85 @@ export function Pet() {
     active: false,
   });
   const [typing, setTyping] = useState(false);
-  const [pat, setPat] = useState(0);
+  const [wheel, setWheel] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState('');
   const [size, setSize] = useState({ width: innerWidth, height: innerHeight });
   const engine = useRef<PetEngine | null>(null);
-  const pointer = usePointerRegions();
-  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const touches = useRef(0);
+  const model = useRef<ModelSession | undefined>(undefined);
+  const pointer = usePointerRegions(() => model.current?.hitMask());
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const scale = companion.appearance?.scale ?? 1;
+  const skin = companion.appearance?.skin;
+  const { diameter } = petDisplaySize(size, scale);
+  const behavior = useBehavior(
+    skin,
+    [
+      ...(dragging ? ['drag'] : []),
+      ...(state.moving ? ['move'] : []),
+      ...(state.text || state.question || companion.draft ? ['talk'] : []),
+      state.face,
+    ],
+    state.performing,
+  );
   const close = () => {
     setTyping(false);
-    if (!gestures.drag.current) {
-      window.embodied.focusPet(false);
+    setWheel(false);
+    window.embodied.focusPet(false);
+  };
+  const talk = () => {
+    setWheel(false);
+    setNotice('');
+    if (typing) close();
+    else setTyping(true);
+  };
+  const touch = () => {
+    behavior.trigger('touch');
+  };
+  const toggleWheel = () => {
+    if (wheel) close();
+    else {
+      setTyping(false);
+      setWheel(true);
     }
   };
-  const scale = companion.appearance?.scale ?? 1;
-  const diameter = 140 * scale;
-  const skin = companion.appearance?.skin;
-  const motion: Motion =
-    pat && skin?.animations.touch
-      ? 'touch'
-      : state.moving
-        ? 'move'
-        : state.text || state.question
-          ? 'talk'
-          : state.face === 'neutral'
-            ? 'idle'
-            : state.face;
   const gestures = usePetGestures(
     {
-      pat: () => {
-        clearTimeout(feedbackTimer.current);
-        const count = ++touches.current;
-        setPat(count);
-        setNotice(greetings[(count - 1) % greetings.length]!);
-        feedbackTimer.current = setTimeout(() => {
-          setPat(0);
-          setNotice('');
-        }, 1600);
+      hitTest: pointer.hitTest,
+      menu: () => {
+        touch();
+        toggleWheel();
       },
-      talk: () => {
-        setNotice('');
-        if (typing) close();
-        else setTyping(true);
+      touch,
+      talk,
+      dragging: (active, cancelled) => {
+        setDragging(active);
+        if (active) {
+          setTyping(false);
+          setWheel(false);
+        } else if (!cancelled) behavior.trigger('drop');
       },
-      move: (x, y) => {
-        if (typing) close();
-        engine.current?.move(x, y);
-      },
+      move: (x, y) => engine.current?.move(x, y),
     },
     scale,
   );
   useEffect(() => {
-    const runtime = new PetEngine(setState, (id, result) => {
-      window.embodied.answer(id, result);
-    });
+    const runtime = new PetEngine(
+      setState,
+      (id, result) => window.embodied.answer(id, result),
+      (action, signal) =>
+        model.current?.execute(action, signal) ??
+        Promise.resolve({ outcome: 'failed', detail: 'Model is loading' }),
+    );
     engine.current = runtime;
     const resize = () => setSize({ width: innerWidth, height: innerHeight });
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') close();
     };
-    const blur = () => setTyping(false);
+    const blur = () => {
+      setTyping(false);
+      setWheel(false);
+    };
     window.addEventListener('resize', resize);
     window.addEventListener('keydown', escape);
     window.addEventListener('blur', blur);
@@ -106,7 +121,7 @@ export function Pet() {
       window.removeEventListener('resize', resize);
       window.removeEventListener('keydown', escape);
       window.removeEventListener('blur', blur);
-      clearTimeout(feedbackTimer.current);
+      clearTimeout(noticeTimer.current);
       off();
       offState();
       runtime.dispose();
@@ -118,19 +133,17 @@ export function Pet() {
   }, [state.x, state.y]);
   const { x, y } = petAnchor(size, state, scale);
   const bubbleLeft = Math.max(12, Math.min(size.width - 282, x + diameter / 2 - 135)) - x;
-  const toolsWidth = companion.active || companion.busy ? 163 : 132;
-  const toolsLeft =
-    Math.max(12, Math.min(size.width - toolsWidth - 12, x + diameter / 2 - toolsWidth / 2)) - x;
-  const openPanel = (view: 'settings' | 'history' | 'appearance') => {
+  const openPanel = (view: PanelView) => {
+    setWheel(false);
     window.embodied.position({ x: state.x, y: state.y });
     window.embodied.showPanel(view);
   };
   return (
-    <div className="pet-stage">
+    <div className="pet-stage" ref={pointer.anchor}>
       <div
-        className={`pet-anchor ${state.moving ? 'walking' : ''} ${typing ? 'is-typing' : ''} ${pointer.hovered ? 'is-hovered' : ''}`}
-        ref={pointer.anchor}
-        style={{ left: x, top: y, width: diameter, height: diameter + 42 }}
+        className="pet-anchor"
+        style={{ left: x, top: y, width: diameter, height: diameter }}
+        data-behavior={behavior.id}
       >
         <PetBubble
           state={state}
@@ -140,80 +153,82 @@ export function Pet() {
           answer={(text) => engine.current?.answer(text)}
           left={bubbleLeft}
           maxHeight={Math.max(100, y - 22)}
-          bottom={diameter + 52}
+          bottom={diameter + 10}
         />
-        {!typing && !state.text && !state.question && !companion.busy && notice && (
-          <div className="pet-touch-note" role="status" style={{ bottom: diameter + 46 }}>
+        {notice && (
+          <div
+            className="pet-touch-note"
+            role="status"
+            style={{
+              bottom: diameter + 8,
+              left: Math.max(92, Math.min(size.width - 92, x + diameter / 2)) - x,
+            }}
+          >
             {notice}
           </div>
         )}
-        <span className={`emotion ${state.face}`}>{faces[state.face]}</span>
-        {pat > 0 && (
-          <div key={pat} className="pet-sparks" aria-hidden="true">
-            <i>✦</i>
-            <i>♡</i>
-            <i>✧</i>
-          </div>
+        {behavior.mark && (
+          <span key={behavior.sequence + behavior.id} className="behavior-mark" aria-hidden="true">
+            {behavior.mark}
+          </span>
         )}
         <button
-          aria-label="摸摸桌宠，双击输入消息"
-          title="单击摸摸 · 双击说话 · 拖动移动"
-          className={`pet-body ${state.face} ${gestures.pressed ? 'pressed' : ''}`}
+          aria-label="桌宠，单击打开轮盘，双击聊天"
+          title="单击轮盘 · 双击聊天 · 拖动移动 · 抚摸头部"
+          className={`pet-body ${gestures.pressed ? 'pressed' : ''}`}
           style={{ width: diameter, height: diameter }}
-          data-animated={Boolean(
-            skin?.animations[motion] && (motion !== 'idle' || skin.animations.idle.frames > 1),
-          )}
           {...gestures.handlers}
           onContextMenu={(event) => {
             event.preventDefault();
-            openPanel('settings');
+            if (pointer.hitTest(event.clientX, event.clientY)) toggleWheel();
           }}
         >
-          <span
-            key={pat}
-            className={`skin-frame ${pat ? 'patted' : ''}`}
-            style={{ rotate: `${gestures.look * 4}deg` }}
-          >
-            <SkinSprite skin={skin} motion={motion} />
+          <span className="skin-look" style={{ rotate: `${dragging ? 0 : gestures.look * 2}deg` }}>
+            <span className="skin-frame" ref={behavior.frame}>
+              {skin && companion.appearance ? (
+                <ModelView
+                  skin={skin}
+                  revision={companion.appearance.revision}
+                  behavior={behavior.id}
+                  sequence={behavior.sequence}
+                  session={(session) => {
+                    model.current = session;
+                  }}
+                  status={(status, detail) =>
+                    window.embodied.modelStatus({
+                      revision: companion.appearance!.revision,
+                      status,
+                      detail,
+                    })
+                  }
+                />
+              ) : (
+                <SkinSprite />
+              )}
+            </span>
           </span>
         </button>
-        <div
-          className="pet-tools"
-          style={{ top: diameter + 5, left: toolsLeft, translate: 'none' }}
-        >
-          <button
-            aria-label="和桌宠聊天"
-            title="和我说话"
-            onClick={() => {
-              if (typing) close();
-              else setTyping(true);
-            }}
-          >
-            <Icon name="chat" />
-          </button>
-          <button aria-label="对话记录" title="对话记录" onClick={() => openPanel('history')}>
-            <Icon name="history" />
-          </button>
-          <button aria-label="连接设置" title="连接设置" onClick={() => openPanel('settings')}>
-            <Icon name="settings" />
-          </button>
-          <button aria-label="更换形象" title="更换形象" onClick={() => openPanel('appearance')}>
-            <Icon name="skin" />
-          </button>
-          {(companion.active || companion.busy) && (
-            <button
-              aria-label="停止当前动作"
-              title="停止当前动作"
-              className="pet-stop"
-              onClick={() =>
-                void window.embodied.stop().catch(() => setNotice('停止未确认，请检查连接'))
-              }
-            >
-              <Icon name="stop" />
-            </button>
-          )}
-        </div>
       </div>
+      {wheel && (
+        <PetWheel
+          position={wheelPosition(size, { x, y, width: diameter, height: diameter })}
+          busy={companion.active || companion.busy}
+          close={() => {
+            setWheel(false);
+            window.embodied.focusPet(false);
+          }}
+          talk={talk}
+          touch={touch}
+          panel={openPanel}
+          stop={() =>
+            void window.embodied.stop().catch(() => {
+              setNotice('停止未确认，请检查连接');
+              clearTimeout(noticeTimer.current);
+              noticeTimer.current = setTimeout(() => setNotice(''), 4000);
+            })
+          }
+        />
+      )}
     </div>
   );
 }

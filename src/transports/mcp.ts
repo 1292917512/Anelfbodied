@@ -1,30 +1,24 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { capabilities, cancelSchema, commandSchema } from '../protocol/schema';
-import type { Controller } from '../runtime/controller';
+import { cancelSchema, commandSchema } from '../protocol/schema';
+import type { ControlService } from '../runtime/ports';
 import { productName, version } from '../shared/product';
-import {
-  configureConnectionSchema,
-  connectionActionSchema,
-  type ConnectionControl,
-} from '../contracts/connection';
-
-const result = (value: object) => ({
-  content: [{ type: 'text' as const, text: JSON.stringify(value) }],
-  structuredContent: { ...value },
-});
+import { mcpResult as result, type McpExtension } from './mcp-extension';
 
 /** MCP tools delegate to the same controller as protocol messages. */
 export function createMcp(
-  controller: Controller,
+  controller: ControlService,
   owner = 'external',
-  connection?: ConnectionControl,
+  extensions: readonly McpExtension[] = [],
 ): McpServer {
   const server = new McpServer({ name: 'desktop-embodied', title: productName, version });
   server.registerTool(
     'pet_capabilities',
-    { description: 'Discover supported desktop pet actions and their JSON schemas.' },
-    async () => result(capabilities()),
+    {
+      description:
+        'Discover common behavior schemas and the active model: readiness, revision, all registered actions, descriptions and suggested durations. Call again after switching skins. Use perform with a discovered name and revision through pet_execute; never assume fixed motion names.',
+    },
+    async () => result(controller.capabilities()),
   );
   server.registerTool(
     'pet_execute',
@@ -68,34 +62,6 @@ export function createMcp(
         receipts: id ? [controller.get(owner, id)].filter(Boolean) : controller.list(owner),
       }),
   );
-  if (connection) {
-    server.registerTool(
-      'pet_connection_state',
-      {
-        description:
-          'Read the saved Anelf HTTP/HTTPS channel settings and live connection status. Credentials are never returned. Read revision before editing to detect concurrent changes.',
-        annotations: { readOnlyHint: true },
-      },
-      async () => result(connection.snapshot()),
-    );
-    server.registerTool(
-      'pet_configure_connection',
-      {
-        description:
-          'Patch the saved channel configuration and connect by default. Use the HTTP API channel URL and its API token, not WebUI credentials. Omitted fields stay unchanged; changing baseUrl without token clears the old credential. Use connect:false to save while disconnected. expectedRevision detects conflicting edits. Check connection.status: saved configuration does not imply an online channel. Cancellation stops connection attempts but does not undo saved settings. Stop a busy conversation before changing configuration.',
-        inputSchema: configureConnectionSchema.omit({ skillName: true }),
-      },
-      async (input, extra) => result(await connection.configure(input, extra.signal)),
-    );
-    server.registerTool(
-      'pet_connection_control',
-      {
-        description:
-          'Connect the saved Anelf channel, disconnect its event stream, or request the current conversation to stop. Disconnecting does not stop the remote agent; use stop first when needed. A stop request may still be settling: inspect busy in pet_connection_state. Connecting and history synchronization support SDK cancellation. Initial attempts return online/error; only previously established connections automatically reconnect.',
-        inputSchema: z.object({ action: connectionActionSchema }),
-      },
-      async ({ action }, extra) => result(await connection.control(action, extra.signal)),
-    );
-  }
+  extensions.forEach((register) => register(server));
   return server;
 }
