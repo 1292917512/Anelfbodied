@@ -855,9 +855,14 @@ test('native dragging switches work areas, reaches corners and keeps capture unt
   const areas = await app.evaluate(({ BrowserWindow, screen }) => {
     const display = screen.getPrimaryDisplay();
     const area = display.workArea;
-    const width = Math.floor(area.width / 2);
+    const width = Math.floor(area.width * 0.45);
     const left = { ...area, width };
-    const right = { ...area, x: area.x + width, width: area.width - width };
+    const right = {
+      x: area.x + width,
+      y: area.y + 40,
+      width: area.width - width,
+      height: area.height - 40,
+    };
     const state = globalThis as unknown as { dragCursor: { x: number; y: number } };
     state.dragCursor = { x: left.x + 100, y: left.y + 100 };
     screen.getCursorScreenPoint = () => state.dragCursor;
@@ -871,6 +876,14 @@ test('native dragging switches work areas, reaches corners and keeps capture unt
     return { left, right };
   });
   await expect.poll(() => pet.evaluate(() => innerWidth)).toBe(areas.left.width);
+  await expect
+    .poll(() =>
+      pet.locator('.pet-anchor').evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return Math.abs(rect.left - (innerWidth - rect.width) * 0.78) < 1;
+      }),
+    )
+    .toBe(true);
   const body = pet.locator('.pet-body');
   const box = (await body.boundingBox())!;
   const setCursor = (point: { x: number; y: number }) =>
