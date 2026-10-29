@@ -9,43 +9,59 @@ export interface Size {
   height: number;
 }
 
-/** Fits the requested model size while reserving space for feedback and controls. */
+/** Fits the model to the work area without reserving space for transient controls. */
 export function petDisplaySize(size: Size, scale = 1) {
   const requested = petSize.base * scale;
-  const reserve = Math.min(160, size.height / 4);
-  const diameter = Math.max(
-    1,
-    Math.min(requested, (size.width - 40) / 1.24, (size.height - reserve - 94) / 1.24),
-  );
+  const diameter = Math.max(1, Math.min(requested, size.width, size.height));
   return { requested, diameter, limited: diameter < requested };
 }
 function petRange(size: Size, scale: number) {
   const { diameter } = petDisplaySize(size, scale);
-  const margin = 20 + diameter * 0.12;
-  const top =
-    Math.min(
-      190,
-      Math.max(Math.min(160, size.height / 4), size.height - diameter - 54 - margin * 2),
-    ) + margin;
   return {
-    left: margin,
-    top,
-    width: Math.max(0, size.width - diameter - margin * 2),
-    height: Math.max(0, size.height - top - diameter - 54 - margin),
+    width: Math.max(0, size.width - diameter),
+    height: Math.max(0, size.height - diameter),
   };
 }
 export function petAnchor(size: Size, point: Point, scale = 1): Point {
   const range = petRange(size, scale);
   return {
-    x: range.left + range.width * point.x,
-    y: range.top + range.height * point.y,
+    x: range.width * Math.max(0, Math.min(1, point.x)),
+    y: range.height * Math.max(0, Math.min(1, point.y)),
   };
 }
 export function normalizePet(size: Size, point: Point, scale = 1): Point {
   const range = petRange(size, scale);
   return {
-    x: range.width ? (point.x - range.left) / range.width : 0.5,
-    y: range.height ? (point.y - range.top) / range.height : 0.5,
+    x: range.width ? Math.max(0, Math.min(1, point.x / range.width)) : 0.5,
+    y: range.height ? Math.max(0, Math.min(1, point.y / range.height)) : 0.5,
+  };
+}
+
+/** Places feedback above, below or beside the model while keeping controls on screen. */
+export function bubblePlacement(viewport: Size, body: Point & Size) {
+  const gap = 12;
+  const width = Math.max(1, Math.min(270, viewport.width - gap * 2));
+  const left = Math.max(
+    gap,
+    Math.min(viewport.width - width - gap, body.x + body.width / 2 - width / 2),
+  );
+  const above = body.y - gap * 2;
+  const below = viewport.height - body.y - body.height - gap * 2;
+  if (above >= 160 && above >= below)
+    return { left: left - body.x, width, bottom: body.height + gap, maxHeight: above };
+  if (below >= 160) return { left: left - body.x, width, top: body.height + gap, maxHeight: below };
+  const side =
+    body.x + body.width + gap + width <= viewport.width - gap
+      ? body.x + body.width + gap
+      : body.x - width - gap >= gap
+        ? body.x - width - gap
+        : left;
+  const top = Math.max(gap, Math.min(viewport.height - 172, body.y));
+  return {
+    left: side - body.x,
+    width,
+    top: top - body.y,
+    maxHeight: Math.max(1, viewport.height - top - gap),
   };
 }
 

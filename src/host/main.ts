@@ -33,6 +33,7 @@ import { ModelLibrary } from '../skins/library';
 import { modelSources } from '../composition/model-sources';
 import { registerAppearance } from './appearance';
 import { PointerBoundary } from './pointer-boundary';
+import { PetDrag } from './pet-drag';
 import { prepareStorage } from './storage';
 import { Updater } from '../updates/updater';
 import { GitHubReleases } from '../updates/source';
@@ -156,6 +157,15 @@ async function start(): Promise<void> {
   const petContents = pet.webContents,
     panelContents = panel.webContents;
   const pointer = new PointerBoundary(pet);
+  const drag = new PetDrag(
+    pet,
+    () => skins.current().scale,
+    (point) => {
+      if (point) desktop.position(point);
+      if (!petContents.isDestroyed()) petContents.send('pet:drag-position', point);
+    },
+    (enabled) => pointer.capture(enabled),
+  );
   const driver = createRendererDriver(petContents);
   const controller = new Controller(driver, new Journal(join(data, 'receipts.json')));
   const activateModel = () => {
@@ -341,6 +351,16 @@ async function start(): Promise<void> {
   listen('pet:capture', (event, enabled: unknown) => {
     if (event.sender === petContents && typeof enabled === 'boolean') pointer.capture(enabled);
   });
+  listen('pet:drag', (event, input: unknown) => {
+    if (event.sender !== petContents || event.senderFrame !== petContents.mainFrame) return;
+    if (input === null) drag.stop(true);
+    else {
+      const grab = z
+        .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
+        .safeParse(input);
+      if (grab.success) drag.start(grab.data);
+    }
+  });
   listen('pet:regions', (event, input: unknown) => {
     if (event.sender !== petContents) return;
     const regions = pointerRegionsSchema.safeParse(input);
@@ -373,7 +393,7 @@ async function start(): Promise<void> {
         label: '显示 / 隐藏桌宠',
         click: () => (pet.isVisible() ? pet.hide() : pet.showInactive()),
       },
-      { label: '移到鼠标所在屏幕', click: desktop.updateDisplay },
+      { label: '移到鼠标所在屏幕', click: desktop.moveToCursor },
       {
         label: '停止当前动作',
         click: () => {

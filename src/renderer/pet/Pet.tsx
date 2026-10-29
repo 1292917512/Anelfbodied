@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { PetEngine, type PetState } from './engine';
-import { petAnchor, petDisplaySize } from '../../shared/geometry';
+import { bubblePlacement, petAnchor, petDisplaySize } from '../../shared/geometry';
 import type { CompanionState, PanelView } from '../../contracts/client';
 import { usePetGestures } from './usePetGestures';
 import { usePointerRegions } from './usePointerRegions';
@@ -73,26 +73,23 @@ export function Pet() {
       setWheel(true);
     }
   };
-  const gestures = usePetGestures(
-    {
-      hitTest: pointer.hitTest,
-      menu: () => {
-        touch();
-        toggleWheel();
-      },
-      touch,
-      talk,
-      dragging: (active, cancelled) => {
-        setDragging(active);
-        if (active) {
-          setTyping(false);
-          setWheel(false);
-        } else if (!cancelled) behavior.trigger('drop');
-      },
-      move: (x, y) => engine.current?.move(x, y),
+  const gestures = usePetGestures({
+    hitTest: pointer.hitTest,
+    menu: () => {
+      touch();
+      toggleWheel();
     },
-    scale,
-  );
+    touch,
+    talk,
+    dragging: (active, cancelled) => {
+      setDragging(active);
+      if (active) {
+        setTyping(false);
+        setWheel(false);
+      } else if (!cancelled) behavior.trigger('drop');
+    },
+    move: (x, y) => engine.current?.move(x, y),
+  });
   useEffect(() => {
     const runtime = new PetEngine(
       setState,
@@ -132,7 +129,6 @@ export function Pet() {
     return () => clearTimeout(timer);
   }, [state.x, state.y]);
   const { x, y } = petAnchor(size, state, scale);
-  const bubbleLeft = Math.max(12, Math.min(size.width - 282, x + diameter / 2 - 135)) - x;
   const openPanel = (view: PanelView) => {
     setWheel(false);
     window.embodied.position({ x: state.x, y: state.y });
@@ -151,16 +147,14 @@ export function Pet() {
           open={typing}
           close={close}
           answer={(text) => engine.current?.answer(text)}
-          left={bubbleLeft}
-          maxHeight={Math.max(100, y - 22)}
-          bottom={diameter + 10}
+          placement={bubblePlacement(size, { x, y, width: diameter, height: diameter })}
         />
         {notice && (
           <div
             className="pet-touch-note"
             role="status"
             style={{
-              bottom: diameter + 8,
+              top: Math.max(8, y - 40) - y,
               left: Math.max(92, Math.min(size.width - 92, x + diameter / 2)) - x,
             }}
           >

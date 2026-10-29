@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { CompanionState } from '../../contracts/client';
 import type { PetState } from './engine';
 import { Icon } from '../components/Icon';
@@ -10,18 +10,14 @@ export function PetBubble({
   open,
   close,
   answer,
-  left,
-  maxHeight,
-  bottom,
+  placement,
 }: {
   state: PetState;
   companion: CompanionState;
   open: boolean;
   close(): void;
   answer(text: string): void;
-  left: number;
-  maxHeight: number;
-  bottom: number;
+  placement: CSSProperties;
 }) {
   const [draft, setDraft] = useState('');
   const [response, setResponse] = useState('');
@@ -60,11 +56,7 @@ export function PetBubble({
   const thinking = companion.busy && !state.text && !state.question;
   if (!open && !state.text && !state.question && !thinking && !error) return null;
   return (
-    <div
-      className={`pet-bubble ${open ? 'typing' : ''}`}
-      style={{ left, maxHeight, bottom }}
-      role="status"
-    >
+    <div className={`pet-bubble ${open ? 'typing' : ''}`} style={placement} role="status">
       {(open || thinking || error) && (
         <div className="bubble-tools">
           <span>

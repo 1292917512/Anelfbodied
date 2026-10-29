@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent, MouseEvent } from 'react';
-import { normalizePet } from '../../shared/geometry';
 
 interface Callbacks {
   hitTest(x: number, y: number): boolean;
@@ -10,7 +9,7 @@ interface Callbacks {
   dragging(active: boolean, cancelled: boolean): void;
   move(x: number, y: number): void;
 }
-export function usePetGestures(callbacks: Callbacks, scale = 1) {
+export function usePetGestures(callbacks: Callbacks) {
   const [pressed, setPressed] = useState(false);
   const [look, setLook] = useState(0);
   const drag = useRef<{
@@ -21,11 +20,13 @@ export function usePetGestures(callbacks: Callbacks, scale = 1) {
     moved: boolean;
   } | null>(null);
   const moved = useRef(false);
+  const nativeDrag = useRef(false);
   const click = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const stroke = useRef({ x: 0, y: 0, time: 0, distance: 0, cooldown: 0 });
   const current = useRef(callbacks);
   current.current = callbacks;
   const release = (cancelled: boolean) => {
+    if (!drag.current) return;
     const dragging = drag.current?.moved;
     drag.current = null;
     setPressed(false);
@@ -34,15 +35,25 @@ export function usePetGestures(callbacks: Callbacks, scale = 1) {
       clearTimeout(click.current);
     }
     window.embodied.capturePet(false);
+    window.embodied.dragPet(null);
     if (dragging) current.current.dragging(false, cancelled);
   };
   useEffect(() => {
     const blur = () => release(true);
+    const off = window.embodied.onPetDrag((point) => {
+      if (point && nativeDrag.current) current.current.move(point.x, point.y);
+      else if (!point) {
+        nativeDrag.current = false;
+        release(true);
+      }
+    });
     window.addEventListener('blur', blur);
     return () => {
       clearTimeout(click.current);
       window.removeEventListener('blur', blur);
       window.embodied.capturePet(false);
+      window.embodied.dragPet(null);
+      off();
     };
   }, []);
   return {
@@ -65,8 +76,8 @@ export function usePetGestures(callbacks: Callbacks, scale = 1) {
         drag.current = {
           x: event.clientX,
           y: event.clientY,
-          offsetX: event.clientX - rect.left,
-          offsetY: event.clientY - rect.top,
+          offsetX: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+          offsetY: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
           moved: false,
         };
       },
@@ -111,14 +122,8 @@ export function usePetGestures(callbacks: Callbacks, scale = 1) {
           moved.current = true;
           clearTimeout(click.current);
           current.current.dragging(true, false);
-        }
-        if (drag.current.moved) {
-          const point = normalizePet(
-            { width: innerWidth, height: innerHeight },
-            { x: event.clientX - drag.current.offsetX, y: event.clientY - drag.current.offsetY },
-            scale,
-          );
-          current.current.move(point.x, point.y);
+          nativeDrag.current = true;
+          window.embodied.dragPet({ x: drag.current.offsetX, y: drag.current.offsetY });
         }
       },
       onPointerUp(event: PointerEvent<HTMLButtonElement>) {

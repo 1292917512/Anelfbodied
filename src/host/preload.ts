@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopBridge, Snapshot, CompanionState, PanelView } from '../contracts/client';
 import type { PresentationOrder } from '../protocol/presentation';
+import type { Point } from '../shared/geometry';
 
 const bridge: DesktopBridge = {
   snapshot: () => ipcRenderer.invoke('app:snapshot'),
@@ -36,6 +37,12 @@ const bridge: DesktopBridge = {
   },
   position: (point) => ipcRenderer.send('pet:position', point),
   capturePet: (enabled) => ipcRenderer.send('pet:capture', enabled),
+  dragPet: (grab) => ipcRenderer.send('pet:drag', grab),
+  onPetDrag: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, point: Point | null) => callback(point);
+    ipcRenderer.on('pet:drag-position', handler);
+    return () => ipcRenderer.removeListener('pet:drag-position', handler);
+  },
   hitRegions: (regions) => ipcRenderer.send('pet:regions', regions),
   answer: (id, result) => ipcRenderer.send('pet:result', id, result),
   ready: () => ipcRenderer.send('pet:ready'),

@@ -75,7 +75,7 @@ export function createDesktop(
   };
   const updateDisplay = () => {
     if (pet.isDestroyed()) return;
-    pet.setBounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea);
+    pet.setBounds(screen.getDisplayMatching(pet.getBounds()).workArea);
     if (panel.isVisible()) {
       const area = screen.getDisplayMatching(panel.getBounds()).workArea;
       const bounds = panel.getBounds();
@@ -124,11 +124,15 @@ export function createDesktop(
   }
   screen.on('display-metrics-changed', updateDisplay);
   screen.on('display-removed', updateDisplay);
+  screen.on('display-added', updateDisplay);
   return {
     pet,
     panel,
     showPanel,
     updateDisplay,
+    moveToCursor: () => {
+      pet.setBounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea);
+    },
     scale: (value: number) => {
       scale = value;
     },

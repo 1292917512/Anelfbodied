@@ -11,7 +11,7 @@ import type { Appearance, Skin } from '../model/schema';
 import type { UpdateState } from './update';
 import type { ModelCapabilities } from '../protocol/model';
 import type { ModelLibrarySnapshot } from '../model/source';
-import type { Size } from '../shared/geometry';
+import type { Point, Size } from '../shared/geometry';
 import type { BehaviorSettings, BindingPatch } from '../behavior/settings';
 
 export interface ModelLibraryRequest {
@@ -71,6 +71,8 @@ export interface DesktopBridge {
   update(action: 'check' | 'download' | 'cancel' | 'install'): Promise<void>;
   position(point: { x: number; y: number }): void;
   capturePet(enabled: boolean): void;
+  dragPet(grab: Point | null): void;
+  onPetDrag(callback: (point: Point | null) => void): () => void;
   hitRegions(regions: HitRegion[]): void;
   answer(id: string, result: ActionResult): void;
   ready(): void;

@@ -850,6 +850,94 @@ test('touch preserves AI work, dragging takes over, and the utility panel stays 
     .toBe(false);
 });
 
+test('native dragging switches work areas, reaches corners and keeps capture until release', async () => {
+  await probePointer();
+  const areas = await app.evaluate(({ BrowserWindow, screen }) => {
+    const display = screen.getPrimaryDisplay();
+    const area = display.workArea;
+    const width = Math.floor(area.width / 2);
+    const left = { ...area, width };
+    const right = { ...area, x: area.x + width, width: area.width - width };
+    const state = globalThis as unknown as { dragCursor: { x: number; y: number } };
+    state.dragCursor = { x: left.x + 100, y: left.y + 100 };
+    screen.getCursorScreenPoint = () => state.dragCursor;
+    screen.getDisplayNearestPoint = (point) => ({
+      ...display,
+      workArea: point.x >= right.x ? right : left,
+    });
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL().includes('view=pet'))!
+      .setBounds(left);
+    return { left, right };
+  });
+  await expect.poll(() => pet.evaluate(() => innerWidth)).toBe(areas.left.width);
+  const body = pet.locator('.pet-body');
+  const box = (await body.boundingBox())!;
+  const setCursor = (point: { x: number; y: number }) =>
+    app.evaluate((_electron, cursor) => {
+      (globalThis as unknown as { dragCursor: { x: number; y: number } }).dragCursor = cursor;
+    }, point);
+  const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await setCursor({ x: areas.left.x + start.x, y: areas.left.y + start.y });
+  await expect
+    .poll(() =>
+      app.evaluate(
+        () => (globalThis as unknown as { pointerProbe: PointerProbe }).pointerProbe.ignored,
+      ),
+    )
+    .toBe(false);
+  await pet.mouse.move(start.x, start.y);
+  await pet.mouse.down();
+  await expectCaptured(true);
+  await pet.mouse.move(start.x + 10, start.y);
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'drag');
+  for (const [area, bottomRight] of [
+    [areas.right, true],
+    [areas.left, false],
+  ] as const) {
+    await setCursor({
+      x: area.x + (bottomRight ? area.width - 1 : 1),
+      y: area.y + (bottomRight ? area.height - 1 : 1),
+    });
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .find((window) => window.webContents.getURL().includes('view=pet'))!
+            .getBounds(),
+        ),
+      )
+      .toEqual(area);
+    await expect
+      .poll(() =>
+        body.evaluate((element, end) => {
+          const rect = element.getBoundingClientRect();
+          return end
+            ? Math.abs(rect.right - innerWidth) < 1 && Math.abs(rect.bottom - innerHeight) < 1
+            : rect.left === 0 && rect.top === 0;
+        }, bottomRight),
+      )
+      .toBe(true);
+    await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'drag');
+  }
+  await pet.mouse.up();
+  await expectCaptured(false);
+  await expect(pet.locator('.pet-anchor')).toHaveAttribute('data-behavior', 'drop');
+  await request(
+    '/v1/commands',
+    command('drag-edge-bubble', [{ action: 'say', text: '跨屏后气泡仍可见', durationMs: 2000 }]),
+  );
+  await expect(pet.getByText('跨屏后气泡仍可见')).toBeVisible();
+  expect(
+    await pet.locator('.pet-bubble').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return (
+        rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight
+      );
+    }),
+  ).toBe(true);
+});
+
 test('imports a sprite skin, changes scale and switches back without interrupting a task', async () => {
   const source = await mkdtemp(join(tmpdir(), 'embodied-skin-e2e-'));
   await copyFile('src/renderer/public/skins/anelf/idle.png', join(source, 'pet.png'));
