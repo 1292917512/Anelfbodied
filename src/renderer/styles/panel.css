@@ -273,9 +273,27 @@
   padding-top: 18px;
   border-top: 1px solid var(--line);
 }
-.channel-guide h3 {
-  margin: 0 0 8px;
-  font-size: 15px;
+.guide-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.guide-actions .hint {
+  margin: 0;
+}
+.guide-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+.guide-progress {
+  max-height: 220px;
+  overflow: auto;
+}
+.guide-reply {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.6;
 }
 .channel-guide details {
   margin: 12px 0;

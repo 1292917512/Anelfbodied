@@ -31,6 +31,17 @@ try {
   await panel.waitForFunction(() => Boolean(window.embodied));
   const state = await panel.evaluate(() => window.embodied.snapshot());
   assert.ok(state.appearance.skins.some((skin) => skin.id === 'example-anelf' && !skin.builtin));
+  if (state.settings.userId !== 'installer-preserved')
+    await panel.evaluate(() =>
+      window.embodied.configure({
+        baseUrl: 'http://127.0.0.1:9',
+        token: 'installer-test-token',
+        userId: 'installer-preserved',
+        connect: false,
+      }),
+    );
+  if (state.appearance.scale !== 1.2)
+    await panel.evaluate(() => window.embodied.setAppearance({ skinId: 'anelf', scale: 1.2 }));
   for (let i = 0; i < 100; i++) {
     try {
       await readFile(join(data, 'connection.json'));

@@ -1,5 +1,10 @@
 !include LogicLib.nsh
 
+!macro customHeader
+  !include "${BUILD_RESOURCES_DIR}\uninstall-data.nsh"
+  !include "${BUILD_RESOURCES_DIR}\uninstall-checks.nsh"
+!macroend
+
 !macro customInstallMode
   StrCpy $isForceCurrentInstall "1"
 !macroend
@@ -11,7 +16,7 @@
 !macroend
 
 !macro customWelcomePage
-  !define MUI_WELCOMEPAGE_TEXT "安装程序将创建快捷方式并注册卸载入口。$\r$\n$\r$\n程序、配置、缓存和皮肤保存在所选安装目录中。请使用当前用户可写的目录。$\r$\n$\r$\n卸载将永久删除本程序的数据。二次开发的源素材请保存在安装目录之外。"
+  !define MUI_WELCOMEPAGE_TEXT "在桌面与你的 AI 伙伴交流。$\r$\n$\r$\n程序、配置和皮肤集中保存在所选目录中，请使用当前用户可写的目录。$\r$\n$\r$\n覆盖安装会保留数据。卸载时默认保留，也可勾选删除。"
   !insertmacro MUI_PAGE_WELCOME
 !macroend
 
@@ -32,65 +37,43 @@
 !macroend
 
 !macro customUnWelcomePage
-  !define MUI_UNWELCOMEPAGE_TEXT "卸载将删除程序、配置、缓存、日志、回执和导入的皮肤，并移除快捷方式及卸载注册信息。$\r$\n$\r$\n数据不会保留，请先备份需要的内容。"
+  !define MUI_UNWELCOMEPAGE_TEXT "卸载将移除程序、快捷方式和 Windows 卸载入口。$\r$\n$\r$\n默认保留配置、皮肤与其他用户数据，之后安装到同一目录即可继续使用。$\r$\n$\r$\n下一步可以选择同时删除这些数据。"
   !insertmacro MUI_UNPAGE_WELCOME
+  UninstPage custom un.DataOptionsCreate un.DataOptionsLeave
+!macroend
+
+!macro customUninstallPage
+  !define MUI_UNFINISHPAGE_TEXT "$dataDisposition$\r$\n$\r$\n程序、快捷方式和卸载信息已移除。"
 !macroend
 
 !macro customRemoveFiles
   ReadINIStr $R0 "$INSTDIR\installation.ini" "Embodied" "AppId"
   ${If} $R0 != "${APP_ID}"
-    MessageBox MB_ICONSTOP|MB_OK "安装目录校验失败，已停止清理。"
+    MessageBox MB_ICONSTOP|MB_OK "安装目录校验失败，已停止清理。" /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
   SetOutPath $TEMP
-  !include "${BUILD_RESOURCES_DIR}\..\.build\nsis\uninstall-files.nsh"
   ${IfNot} ${isUpdated}
+  ${AndIf} $removeUserData == ${BST_CHECKED}
+    StrCpy $deletingData 0
     Push "$INSTDIR\data"
-    Call un.RemoveOwnedTree
+    Call un.VisitDataTree
+  ${EndIf}
+  !include "${BUILD_RESOURCES_DIR}\..\.build\nsis\uninstall-files.nsh"
+  StrCpy $dataDisposition "用户数据保留在：$\r$\n$INSTDIR\data$\r$\n$\r$\n重新安装到同一目录即可继续使用。"
+  ${IfNot} ${isUpdated}
+  ${AndIf} $removeUserData == ${BST_CHECKED}
+    StrCpy $deletingData 1
+    Push "$INSTDIR\data"
+    Call un.VisitDataTree
     IfFileExists "$INSTDIR\data\*.*" 0 +4
-      MessageBox MB_ICONSTOP|MB_OK "数据文件仍被占用，请关闭桌宠后重试卸载。"
+      MessageBox MB_ICONSTOP|MB_OK "数据文件仍被占用，请关闭桌宠后重试卸载。" /SD IDOK
       SetErrorLevel 2
       Abort
+    StrCpy $dataDisposition "用户数据已按你的选择删除。"
   ${EndIf}
   Delete "$INSTDIR\installation.ini"
   Delete "$INSTDIR\${UNINSTALL_FILENAME}"
   RMDir "$INSTDIR"
 !macroend
-
-!ifdef BUILD_UNINSTALLER
-; Removes directory links without traversing their targets.
-Function un.RemoveOwnedTree
-  Exch $0
-  Push $1
-  Push $2
-  Push $3
-  System::Call 'kernel32::GetFileAttributesW(w r0) i.r1'
-  IntOp $1 $1 & 0x400
-  ${If} $1 == 0
-    FindFirst $2 $3 "$0\*.*"
-    owned_loop:
-      StrCmp $3 "" owned_done
-      StrCmp $3 "." owned_next
-      StrCmp $3 ".." owned_next
-      System::Call 'kernel32::GetFileAttributesW(w "$0\$3") i.r1'
-      IntOp $1 $1 & 0x10
-      ${If} $1 != 0
-        Push "$0\$3"
-        Call un.RemoveOwnedTree
-      ${Else}
-        Delete "$0\$3"
-      ${EndIf}
-    owned_next:
-      FindNext $2 $3
-      Goto owned_loop
-    owned_done:
-      FindClose $2
-  ${EndIf}
-  RMDir "$0"
-  Pop $3
-  Pop $2
-  Pop $1
-  Pop $0
-FunctionEnd
-!endif

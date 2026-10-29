@@ -41,20 +41,24 @@ Electron 还可能在 `data/` 中保存自己的本地状态文件。安装器�
 
 发布新版本需在项目 GitHub Release 中上传 `AnelfBodied-Setup-<版本>-x64.exe`，版本号与程序一致。更新器使用 [GitHub 提供的资源 SHA-256](https://docs.github.com/en/rest/releases/assets) 校验，缺少校验或地址不匹配时拒绝下载。没有新发布版本时明确显示当前状态，不修改任何配置。
 
-## 完整卸载
+## 卸载与数据保留
 
 在 Windows 设置的应用列表中卸载 AnelfBodied，或运行安装目录里的卸载程序。
 
-- 删除本程序安装的文件、配置、缓存、日志、回执和自定义皮肤。
-- 删除快捷方式以及安装器创建的卸载注册信息。
-- 不提供默认保留数据的行为，卸载前请自行备份需要的内容。
+- 默认只删除程序文件、快捷方式以及安装器创建的卸载注册信息，保留安装目录下的 `data/`。安装到同一目录后可继续使用原配置、凭据和皮肤。
+- 卸载向导中“同时删除用户数据”默认不勾选。勾选后才删除 `data/`，包括配置、缓存、日志、回执、更新包和自定义皮肤；此操作不可撤销。
 - 不删除同目录中不属于安装包的其他文件；这种情况下目录会保留这些文件。
-- 安装标记不匹配或数据文件被占用时报告失败，不把未完成的清理显示成成功。
+- 删除前检查安装标记、程序目录链接和文件占用。检查失败时停止，避免先删一部分程序文件；删除过程中出现错误也会报告失败。
+- 覆盖安装中的自动卸载始终保留数据，不受卸载数据选项影响。
 
-皮肤源素材请保存在安装目录之外，通过导入复制到 `data/skins/`。不要把唯一的开发素材放在运行数据目录中。
+静默卸载 `"Uninstall AnelfBodied.exe" /S /currentuser` 同样保留数据。明确需要清空时追加 `/DELETEUSERDATA`，不使用 electron-builder 的 `--delete-app-data` 开关；本项目只负责当前安装目录内的数据，不清理其他副本。皮肤开发源素材仍建议另存备份。
 
 ## 验证
 
-`pnpm run test:installer` 在项目 `.local/installer-smoke/` 下测试安装、启动、升级与卸载。为避免影响正式安装，检测到当前用户已有安装或同名快捷方式时停止。测试检查运行路径、文档、示例、升级数据保留、完整卸载、快捷方式与注册项清理，以及目录链接和无关文件的边界。
+`pnpm run test:installer` 在项目 `.local/installer-smoke/` 下测试安装、启动、覆盖安装与卸载。为避免影响正式安装，检测到已有注册安装或同名快捷方式时停止。测试比较升级前后凭据、连接配置、皮肤偏好和编辑过的皮肤文件，验证应用内升级重启、占用文件中止、默认保留、重装恢复和勾选删除所用的清理路径，同时检查快捷方式、注册项、目录链接和无关文件边界。
 
-`scripts/installer.mjs` 构建安装器并将成功的单个 EXE 放入 `release/`，其他打包产物留在 `.build/package/`。`scripts/after-pack.mjs` 在 `.build/nsis/` 生成示例皮肤清单及卸载文件清单；NSIS 定制在 `build/installer.nsh`。卸载文件清单来自实际打包内容，避免手写文件列表与发行物不一致。定制保留 electron-builder 的标准安装器流程，使用其 [NSIS 扩展接口](https://www.electron.build/docs/nsis/)。
+`ANELFBODIED_BASELINE_INSTALLER` 可指定已发布的旧安装包，测试先安装旧包再覆盖到本次构建。CI 使用 `scripts/fetch-installer-baseline.ps1` 获取并校验最新正式发行包，验证实际升级链路。
+
+本机已有正式安装时，先执行 `pnpm run pack`，再运行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-installer.ps1 -Isolated`。此模式用同一程序包构建独立注册标识与快捷方式的测试安装器，不覆盖正式安装；验证本次构建的安装生命周期，不替代正式旧包升级测试。
+
+`scripts/installer.mjs` 构建安装器并将成功的单个 EXE 放入 `release/`，其他打包产物留在 `.build/package/`。`scripts/after-pack.mjs` 在 `.build/nsis/` 生成示例皮肤清单及卸载文件清单；`build/installer.nsh` 负责安装流程，`uninstall-data.nsh` 负责数据选择与清理，`uninstall-checks.nsh` 负责删除前检查。卸载文件清单来自实际打包内容，避免手写文件列表与发行物不一致。定制保留 electron-builder 的标准安装器流程，使用其 [NSIS 扩展接口](https://www.electron.build/docs/nsis/)。

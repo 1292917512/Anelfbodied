@@ -454,11 +454,11 @@ for (const [index, scheme] of ['HTTP', 'HTTPS'].entries()) {
       await panel.getByLabel('频道地址').fill(fixture.urls[index]!);
       await panel.getByLabel('API Token', { exact: true }).fill(fixture.token);
     }
-    await panel.getByLabel('技能名称', { exact: true }).fill('anelfbodied-control');
+    await panel.getByLabel('技能名称', { exact: true }).fill(index ? '   ' : '');
     await panel.getByRole('button', { name: '保存并连接' }).click();
     await expect(panel.locator('.connection')).toContainText('已连接');
     const settings = JSON.parse(await readFile(join(data, 'settings.json'), 'utf8'));
-    expect(settings.connection.skillName).toBe('anelfbodied-control');
+    expect(settings.connection.skillName).toBe('');
     await panel.screenshot({ path: `test-results/channel-skill-${scheme}.png` });
     await panel.getByRole('button', { name: '收起浮层' }).click();
     await pet.locator('.pet-body').dblclick({ force: true });
@@ -581,9 +581,13 @@ test('channel preserves speech and sends setup with the live MCP configuration o
   try {
     await openSettings();
     await panel.getByLabel('频道地址').fill(`http://127.0.0.1:${address.port}`);
-    await panel.getByLabel('技能名称', { exact: true }).fill('anelfbodied-control');
+    await expect(panel.getByLabel('技能名称', { exact: true })).toHaveValue('');
     await panel.getByRole('button', { name: '保存并连接' }).click();
     await expect(panel.locator('.connection')).toHaveText('已连接');
+    expect(received).toHaveLength(0);
+    await panel.getByLabel('技能名称', { exact: true }).fill('   ');
+    await panel.getByRole('button', { name: '保存并连接' }).click();
+    await expect(panel.getByLabel('技能名称', { exact: true })).toHaveValue('');
     expect(received).toHaveLength(0);
     await panel.getByRole('button', { name: '收起浮层' }).click();
     await pet.locator('.pet-body').dblclick({ force: true });
@@ -609,21 +613,47 @@ test('channel preserves speech and sends setup with the live MCP configuration o
     await expect(panel.locator('.history-view')).toContainText(speech);
     expect(received).toHaveLength(1);
     await panel.getByRole('button', { name: '连接设置', exact: true }).click();
-    const setup = panel.getByRole('button', { name: '发送接入说明', exact: true });
+    const setup = panel.getByRole('button', { name: '让 AI 安装技能', exact: true });
     await expect(setup).toBeEnabled();
-    await panel.getByText('查看将发送的说明与 MCP 配置', { exact: true }).click();
+    const guideDetails = panel.locator('.channel-guide summary');
+    await expect(panel.locator('.guide-preview')).not.toBeVisible();
+    await guideDetails.click();
     await expect(panel.locator('.guide-preview')).toContainText(`${connection.url}/mcp`);
     await expect(panel.locator('.guide-preview')).toContainText(`Bearer ${connection.token}`);
-    await panel.getByText('查看将发送的说明与 MCP 配置', { exact: true }).click();
+    await guideDetails.click();
     await setup.click();
     await expect.poll(() => received.length).toBe(2);
     expect(received[1]).not.toHaveProperty('skills');
     expect(String(received[1]?.message)).toContain(`"url": "${connection.url}/mcp"`);
     expect(String(received[1]?.message)).toContain(`"Authorization": "Bearer ${connection.token}"`);
     expect(String(received[1]?.message)).toContain('set_skill_mcp_servers');
+    expect(String(received[1]?.message)).toContain('name="anelfbodied-control"');
+    expect(String(received[1]?.message)).toContain('才回复“安装完成”');
+    expect(String(received[1]?.message)).toContain('回复“安装未完成”');
     await expect(setup).toBeDisabled();
-    await expect(panel.getByText('说明已发送，安装与绑定结果以 Agent 回复为准。')).toBeVisible();
+    await expect(guideDetails).toContainText('等待结果');
     await panel.screenshot({ path: 'test-results/channel-guide.png' });
+    const result = '安装完成：anelfbodied-control 已就绪，MCP 已绑定并连接。';
+    for (const frame of [{ type: 'reply', content: result }, { type: 'turn_end' }])
+      stream!.write(`data: ${JSON.stringify(frame)}\n\n`);
+    await expect(guideDetails).toContainText('收到回复');
+    await guideDetails.click();
+    await expect(panel.locator('.guide-reply')).toHaveText(result);
+    await panel.getByRole('button', { name: '对话记录', exact: true }).click();
+    await panel.getByRole('button', { name: '连接设置', exact: true }).click();
+    await expect(guideDetails).toContainText('收到回复');
+    await guideDetails.click();
+    await expect(panel.locator('.guide-reply')).toHaveText(result);
+    await expect(setup).toBeEnabled();
+    await setup.click();
+    await expect.poll(() => received.length).toBe(3);
+    await expect(panel.locator('.guide-reply')).not.toBeVisible();
+    for (const frame of [
+      { type: 'reply', content: '安装未完成：MCP 地址不可达。' },
+      { type: 'turn_end' },
+    ])
+      stream!.write(`data: ${JSON.stringify(frame)}\n\n`);
+    await expect(panel.locator('.guide-reply')).toHaveText('安装未完成：MCP 地址不可达。');
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));

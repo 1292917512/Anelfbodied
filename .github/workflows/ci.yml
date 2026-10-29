@@ -32,6 +32,11 @@ jobs:
           pnpm exec playwright test
       - name: Build installer
         run: node scripts/installer.mjs --prepackaged
+      - name: Fetch published upgrade baseline
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/fetch-installer-baseline.ps1
       - name: Verify install, upgrade and uninstall
         run: pnpm run test:installer
       - uses: actions/upload-artifact@v4

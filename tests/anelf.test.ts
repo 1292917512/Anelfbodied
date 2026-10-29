@@ -107,35 +107,39 @@ async function fixture(driver: ActionDriver) {
 }
 
 describe('Anelf HTTP channel adapter', () => {
-  it('sends setup only on request with the actual MCP configuration and no premature skill tag', async () => {
-    const f = await fixture({ execute: async () => ({ outcome: 'completed' }) });
-    const local = { url: 'http://127.0.0.1:57321', token: 'desktop-control-secret' };
-    await f.client.connect({ ...f.config, skillName: 'anelfbodied-control' });
-    await expect.poll(() => f.client.snapshot().status).toBe('online');
-    expect(f.requests).toHaveLength(0);
-    await f.client.sendGuide(local);
-    expect(f.requests[0]?.data).not.toHaveProperty('skills');
-    expect(f.requests[0]?.data.message).toBe(channelGuide('anelfbodied-control', local));
-    expect(String(f.requests[0]?.data.message)).toContain(
-      JSON.stringify(mcpConfiguration(local), null, 2),
-    );
-    expect(String(f.requests[0]?.data.message)).toContain('set_skill_mcp_servers');
-    expect(String(f.requests[0]?.data.message)).not.toContain('fixture-token');
-    await expect(f.client.sendGuide(local)).rejects.toThrow('请等待');
-    f.frame({ type: 'turn_end' });
-    await expect.poll(() => f.client.snapshot().busy).toBe(false);
-    f.reconnect();
-    await expect.poll(() => f.state.subscriptions).toBe(2);
-    await expect.poll(() => f.client.snapshot().status).toBe('online');
-    expect(f.requests).toHaveLength(1);
-    await f.client.send('你好');
-    expect(f.requests.at(-1)?.data).toMatchObject({
-      message: '你好',
-      skills: ['anelfbodied-control'],
-    });
-    expect(channelGuide('custom-skill', local)).toContain('自定义技能名称');
-    expect(channelGuide('custom-skill', local)).not.toContain('raw.githubusercontent.com');
-  });
+  it.each([undefined, '', '   '])(
+    'uses the default skill for %j without automatically sending setup',
+    async (skillName) => {
+      const f = await fixture({ execute: async () => ({ outcome: 'completed' }) });
+      const local = { url: 'http://127.0.0.1:57321', token: 'desktop-control-secret' };
+      await f.client.connect({ ...f.config, skillName });
+      await expect.poll(() => f.client.snapshot().status).toBe('online');
+      expect(f.requests).toHaveLength(0);
+      await f.client.sendGuide(local);
+      expect(f.requests[0]?.data).not.toHaveProperty('skills');
+      expect(f.requests[0]?.data.message).toBe(channelGuide('anelfbodied-control', local));
+      expect(String(f.requests[0]?.data.message)).toContain(
+        JSON.stringify(mcpConfiguration(local), null, 2),
+      );
+      expect(String(f.requests[0]?.data.message)).toContain('set_skill_mcp_servers');
+      expect(String(f.requests[0]?.data.message)).not.toContain('fixture-token');
+      await expect(f.client.sendGuide(local)).rejects.toThrow('请等待');
+      f.frame({ type: 'turn_end' });
+      await expect.poll(() => f.client.snapshot().busy).toBe(false);
+      f.reconnect();
+      await expect.poll(() => f.state.subscriptions).toBe(2);
+      await expect.poll(() => f.client.snapshot().status).toBe('online');
+      expect(f.requests).toHaveLength(1);
+      await f.client.send('你好');
+      expect(f.requests.at(-1)?.data).toMatchObject({
+        message: '你好',
+        skills: ['anelfbodied-control'],
+      });
+      expect(channelGuide('custom-skill', local)).toContain('自定义技能名称');
+      expect(channelGuide('custom-skill', local)).not.toContain('raw.githubusercontent.com');
+      expect(channelGuide(skillName, local)).toBe(channelGuide('anelfbodied-control', local));
+    },
+  );
 
   it.each([
     [404, 'application/json', '未找到频道接口'],
@@ -263,7 +267,7 @@ describe('Anelf HTTP channel adapter', () => {
     await f.client.connect({ ...f.config, skillName: '' });
     await expect.poll(() => f.client.snapshot().status).toBe('online');
     await f.client.send('清除技能');
-    expect(f.requests.at(-1)?.data).not.toHaveProperty('skills');
+    expect(f.requests.at(-1)?.data.skills).toEqual(['anelfbodied-control']);
   });
 
   it('targets the observed Anelf run, cancels local work and rejects late replies after stopping', async () => {
@@ -279,7 +283,7 @@ describe('Anelf HTTP channel adapter', () => {
     await f.client.connect(f.config);
     await expect.poll(() => f.client.snapshot().status).toBe('online');
     await f.client.send('开始');
-    expect(f.requests.at(-1)?.data).not.toHaveProperty('skills');
+    expect(f.requests.at(-1)?.data.skills).toEqual(['anelfbodied-control']);
     f.frame({ type: 'delta', delta: '正在准备', turn_id: 'run-one' });
     f.frame({ type: 'reply', content: '你好' });
     await expect.poll(() => calls).toBe(1);

@@ -1,13 +1,17 @@
 import { mcpConfiguration, type LocalControlConnection } from '../../shared/mcp-configuration';
+import { defaultSkillName, resolveSkillName } from './skill';
 
-export const defaultSkillName = 'anelfbodied-control';
 const skillSource =
   'https://github.com/1292917512/Anelfbodied/tree/main/skills/anelfbodied-control';
 const skillEntry =
   'https://raw.githubusercontent.com/1292917512/Anelfbodied/main/skills/anelfbodied-control/SKILL.md';
 
 /** Builds an explicit setup request with the running instance's MCP configuration. */
-export function channelGuide(skillName: string, local: LocalControlConnection): string {
+export function channelGuide(
+  selectedSkill: string | undefined,
+  local: LocalControlConnection,
+): string {
+  const skillName = resolveSkillName(selectedSkill);
   return `请帮我完成 AnelfBodied 桌宠的频道接入，当前选择的技能名称是 ${skillName}。
 
 先用 get_skill 检查该技能。${
@@ -25,5 +29,5 @@ ${JSON.stringify(mcpConfiguration(local), null, 2)}
 
 关联不等于已连接或已激活。按需要用 connect_mcp_server 和 activate_tool_group(group="mcp:实际服务名") 准备工具，再调用 pet_capabilities 验证接入。动作通过 MCP 工具执行，执行回执及 ask 的真实回答由工具结果返回；频道正文只回复话语，不发送动作 JSON，也不重复回传回执。skills 字段会由 Anelf 转成内部技能标签，不需要在正文再拼接标签。
 
-请用普通话语说明实际安装、绑定和连接结果；不要把收到本消息当作配置成功。`;
+请完成后明确回复安装结果。只有核实技能已存在、Skill 与目标 MCP 已绑定且 pet_capabilities 调用成功后，才回复“安装完成”，并简短说明技能名称和连接状态；已有技能核对通过也可以这样回复。若任一步未完成，回复“安装未完成”并说明原因及仍需的条件。保持普通话语，不输出动作 JSON，不复述 Token，不把收到本消息当作安装成功。`;
 }

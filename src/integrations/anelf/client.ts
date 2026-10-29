@@ -7,6 +7,7 @@ import { connectionSchema, type ConnectionConfig, type ConnectionState } from '.
 import { consumeSse } from './sse';
 import { checkStreamResponse, connectionFailure, ConnectionFailure } from './connection-error';
 import { channelGuide } from './guide';
+import { resolveSkillName } from './skill';
 import type { LocalControlConnection } from '../../shared/mcp-configuration';
 
 /** Exchanges speech over HTTP/SSE and displays live replies as local bubbles. */
@@ -78,8 +79,7 @@ export class AnelfClient extends EventEmitter {
     return this.sendMessage(text, this.skillSelection());
   }
   async sendGuide(local: LocalControlConnection): Promise<void> {
-    if (!this.config?.skillName) throw new Error('请先填写并保存技能名称');
-    return this.sendMessage(channelGuide(this.config.skillName, local), {});
+    return this.sendMessage(channelGuide(this.config?.skillName, local), {});
   }
   private async sendMessage(text: string, selection: { skills?: string[] }): Promise<void> {
     if (this.state.status !== 'online' || this.state.busy)
@@ -139,8 +139,8 @@ export class AnelfClient extends EventEmitter {
   private target(): object {
     return { user_id: this.config?.userId, session_id: this.config?.sessionId };
   }
-  private skillSelection(): { skills?: string[] } {
-    return this.config?.skillName ? { skills: [this.config.skillName] } : {};
+  private skillSelection(): { skills: string[] } {
+    return { skills: [resolveSkillName(this.config?.skillName)] };
   }
   private endpoint(path: string): URL {
     if (!this.config) throw new Error('Anelf is not configured');

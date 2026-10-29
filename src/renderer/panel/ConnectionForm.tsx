@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Snapshot } from '../../contracts/client';
 import type { ConnectionOverview } from '../../contracts/connection';
 import { ChannelGuide } from './ChannelGuide';
+import { defaultSkillName } from '../../integrations/anelf/skill';
 
 export function ConnectionForm({
   snapshot,
@@ -145,14 +146,16 @@ export function ConnectionForm({
               aria-label="技能名称"
               value={form.skillName}
               onChange={(event) => update('skillName', event.target.value)}
-              placeholder="anelfbodied-control"
+              placeholder={defaultSkillName}
               maxLength={64}
-              pattern="[a-z0-9_](?:[a-z0-9_\-]*[a-z0-9_])?"
+              pattern="\s*(?:[a-z0-9_](?:[a-z0-9_\-]*[a-z0-9_])?)?\s*"
               autoCapitalize="none"
               spellCheck={false}
             />
           </label>
-          <p className="hint">由 Anelf 加载指定技能及其 MCP 关联。消息正文只传话语，留空不指定。</p>
+          <p className="hint">
+            留空使用 {defaultSkillName}，由 Anelf 加载技能及其 MCP 关联。消息正文只传话语。
+          </p>
           <p className="hint">
             Token {snapshot.secureStorage ? '由系统加密保存' : '仅保留在本次运行内'}。
           </p>

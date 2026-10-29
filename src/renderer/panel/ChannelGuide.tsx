@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
 import type { Snapshot } from '../../contracts/client';
-import { channelGuide, defaultSkillName } from '../../integrations/anelf/guide';
+import { channelGuide } from '../../integrations/anelf/guide';
 
 export function ChannelGuide({
   snapshot,
@@ -11,53 +10,64 @@ export function ChannelGuide({
   blocked: boolean;
   run(task: () => Promise<unknown>): void;
 }) {
-  const [sent, setSent] = useState(false);
-  useEffect(() => setSent(false), [snapshot.settingsRevision]);
-  const ready =
-    !blocked &&
-    snapshot.connection.status === 'online' &&
-    !snapshot.connection.busy &&
-    Boolean(snapshot.settings.skillName);
-  const message = channelGuide(snapshot.settings.skillName || defaultSkillName, {
+  const ready = !blocked && snapshot.connection.status === 'online' && !snapshot.connection.busy;
+  const message = channelGuide(snapshot.settings.skillName, {
     url: snapshot.apiUrl,
     token: snapshot.apiToken,
   });
+  const start = snapshot.connection.messages.findLastIndex(
+    (line) => line.role === 'user' && line.text === message,
+  );
+  const following = start < 0 ? [] : snapshot.connection.messages.slice(start + 1);
+  const nextUser = following.findIndex((line) => line.role === 'user');
+  const replies = following
+    .slice(0, nextUser < 0 ? undefined : nextUser)
+    .filter((line) => line.role === 'assistant');
+  const waiting = start >= 0 && nextUser < 0 && snapshot.connection.busy;
   return (
     <section className="channel-guide">
-      <h3>让 Agent 准备桌宠技能</h3>
-      <p className="hint">
-        按需发送一次：缺少 Skill 时安装，已有时核对，并通过工具关联桌宠
-        MCP。连接和重连都不会自动发送。
-      </p>
-      <p className="hint">
-        包含本机 MCP 地址、实际端口和控制 Token，会发送至 {snapshot.settings.baseUrl} 并进入该 Anelf
-        的会话记录。
-      </p>
+      <div className="guide-actions">
+        <button
+          type="button"
+          disabled={!ready}
+          onClick={() => run(() => window.embodied.sendGuide())}
+        >
+          让 AI 安装技能
+        </button>
+        <span className="hint">按需安装与绑定 MCP</span>
+      </div>
+      <p className="hint">包含 MCP 连接凭据，可展开预览。不会自动发送。</p>
       <details>
-        <summary>查看将发送的说明与 MCP 配置</summary>
+        <summary>
+          说明与安装进度{' '}
+          {start >= 0 && (
+            <span className="guide-status">
+              · {waiting ? '等待结果' : replies.length ? '收到回复' : '暂无结果'}
+            </span>
+          )}
+        </summary>
+        <div className="guide-progress" role="status">
+          {start >= 0 && (
+            <p className="hint">
+              {waiting
+                ? '正在等待 Agent 回复安装结果。'
+                : replies.length
+                  ? 'Agent 回复'
+                  : '请求已记录，尚未收到安装结果，请核对会话状态。'}
+            </p>
+          )}
+          {replies.map((line) => (
+            <p className="guide-reply" key={line.id}>
+              {line.text}
+            </p>
+          ))}
+        </div>
+        <p className="hint">
+          发往 {snapshot.settings.baseUrl}。以下内容包含本机实际端口与控制 Token，将进入该 Anelf
+          的会话记录。
+        </p>
         <pre className="guide-preview">{message}</pre>
       </details>
-      {!snapshot.settings.skillName && (
-        <p className="hint">请先填写并保存技能名称，可使用 {defaultSkillName}。</p>
-      )}
-      <button
-        type="button"
-        disabled={!ready}
-        onClick={() =>
-          run(async () => {
-            setSent(false);
-            await window.embodied.sendGuide();
-            setSent(true);
-          })
-        }
-      >
-        发送接入说明
-      </button>
-      {sent && (
-        <p className="hint" role="status">
-          说明已发送，安装与绑定结果以 Agent 回复为准。
-        </p>
-      )}
     </section>
   );
 }

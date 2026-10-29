@@ -41,13 +41,15 @@ export default async function afterPack(context) {
   await collect(appOutDir);
   const quote = (name) => name.replaceAll('$', '$$').replaceAll('"', '$\\"');
   const commands = [
+    ...directories.map((name) => `Push "$INSTDIR\\${quote(name)}"\nCall un.CheckOwnedDirectory`),
+    ...files.map((name) => `Push "$INSTDIR\\${quote(name)}"\nCall un.CheckDeletable`),
     ...files
       .sort()
       .map((name) =>
         [
           `Delete "$INSTDIR\\${quote(name)}"`,
           `IfFileExists "$INSTDIR\\${quote(name)}" 0 +4`,
-          'MessageBox MB_ICONSTOP|MB_OK "文件仍被占用，请关闭桌宠后重试卸载。"',
+          'MessageBox MB_ICONSTOP|MB_OK "文件仍被占用，请关闭桌宠后重试卸载。" /SD IDOK',
           'SetErrorLevel 2',
           'Abort',
         ].join('\n'),
